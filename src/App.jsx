@@ -62,6 +62,8 @@ function blankProject() {
     outlineHook: "",
     outlineSections: [],
     scriptDocUrl: "",
+    scriptDocContent: "",
+    scriptDocName: "",
     scriptBody: "",
     cta: "",
     metaTitles: [],
@@ -490,10 +492,17 @@ function ResearchTab({ project, update, presets }) {
         <Fld label="Niche / Main Topic" mt={12}>
           <div style={{ display: "flex", gap: 8 }}>
             <TInput value={project.niche} onChange={(v) => update("niche", v)} placeholder="e.g., Backpacking, Tech Reviews…" style={{ flex: 1 }} />
-            <Btn sm disabled={L["analyze"]} onClick={() => run("analyze", "You are a YouTube SEO and content strategy expert.", `Analyze this topic. Suggest 3 high-performing content angles.\n\nTitle: ${project.title}\nNiche: ${project.niche}`)}>{L["analyze"] ? "✦ Analyzing…" : "✦ Analyze"}</Btn>
+            <Btn sm disabled={L["analyze"]} onClick={() => run("analyze",
+              `You are a YouTube SEO and content strategy expert. Return ONLY a valid JSON object, no markdown, no explanation.`,
+              `Analyze this YouTube topic. Return exactly this JSON structure:
+{"angles":[{"title":"video title idea","hook":"one-sentence hook for the video","why":"why this angle performs well"}],"keywords":["kw1","kw2","kw3","kw4","kw5"],"formats":["format1","format2","format3"],"tips":["tip1","tip2","tip3"]}
+Give 3 angles, 5 keywords (avoid these already used: ${project.keywords.join(", ") || "none"}), 3 video formats, 3 actionable tips.
+Title: ${project.title}
+Niche: ${project.niche}`
+            )}>{L["analyze"] ? "✦ Analyzing…" : "✦ Analyze"}</Btn>
             {L["analyze"] && <Btn sm color="gray" onClick={() => cancel("analyze")}>■ Stop</Btn>}
           </div>
-          {O["analyze"] && <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}><p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{O["analyze"]}</p></div>}
+          {O["analyze"] && <AnalyzeOutput output={O["analyze"]} project={project} update={update} />}
         </Fld>
         <Fld label="Target Video Length (minutes)" mt={12}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -651,6 +660,80 @@ function calcTotalMins(sections) {
 const inputStyle = { border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 14, background: '#0f172a', color: '#ffffff', outline: 'none', boxSizing: 'border-box' };
 
 /* ── Tab: Script ── */
+/* ── Analyze Output — structured cards from AI JSON ── */
+function AnalyzeOutput({ output, project, update }) {
+  let data = null;
+  try {
+    const m = output.match(/\{[\s\S]*\}/);
+    if (m) data = JSON.parse(m[0]);
+  } catch { /* fall through to raw text */ }
+
+  if (!data) {
+    return (
+      <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
+        <p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{output}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+      {data.angles?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>CONTENT ANGLES</div>
+          {data.angles.map((a, i) => (
+            <div key={i} style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0", lineHeight: 1.3 }}>{a.title}</span>
+                <Btn sm onClick={() => update("title", a.title)} style={{ flexShrink: 0 }}>Use title</Btn>
+              </div>
+              {a.hook && <p style={{ fontSize: 12, color: "#60a5fa", margin: "0 0 4px", fontStyle: "italic" }}>🎣 {a.hook}</p>}
+              {a.why && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{a.why}</p>}
+            </div>
+          ))}
+        </div>
+      )}
+      {data.keywords?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>SUGGESTED KEYWORDS</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {data.keywords.map((kw, i) => {
+              const has = project.keywords.includes(kw);
+              return (
+                <button key={i} disabled={has} onClick={() => update("keywords", [...project.keywords, kw])}
+                  style={{ background: has ? "#1e293b" : "#1e3a5f", color: has ? "#64748b" : "#93c5fd", border: `1px solid ${has ? "#334155" : "#3b82f6"}`, borderRadius: 20, padding: "4px 12px", fontSize: 12, cursor: has ? "default" : "pointer", fontWeight: 600 }}>
+                  {has ? "✓ " : "+ "}{kw}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {data.formats?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>VIDEO FORMATS</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {data.formats.map((f, i) => (
+              <span key={i} style={{ background: "#1e1b4b", color: "#a5b4fc", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500 }}>{f}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {data.tips?.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>TIPS</div>
+          {data.tips.map((t, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, alignItems: "flex-start" }}>
+              <span style={{ color: "#3b82f6", fontWeight: 700, fontSize: 16, lineHeight: 1.2, flexShrink: 0 }}>·</span>
+              <span style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.5 }}>{t}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function toDocPreviewUrl(url) {
   if (!url) return "";
   // Convert any Google Doc URL variant to /preview for embedding
@@ -662,7 +745,33 @@ function ScriptTab({ project, update, presets }) {
   const [L, setL] = useState({});
   const [O, setO] = useState({});
   const [showEmbed, setShowEmbed] = useState(false);
+  const [showDocContent, setShowDocContent] = useState(false);
   const [docInput, setDocInput] = useState("");
+  const [docUploading, setDocUploading] = useState(false);
+  const docFileRef = useRef();
+
+  async function handleDocUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setDocUploading(true);
+    try {
+      if (file.name.match(/\.(txt|md)$/i)) {
+        const text = await file.text();
+        update("scriptDocContent", text);
+        update("scriptDocName", file.name);
+        setShowDocContent(true);
+      } else if (file.name.match(/\.docx$/i)) {
+        const mammoth = (await import("mammoth")).default;
+        const buf = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: buf });
+        update("scriptDocContent", result.value);
+        update("scriptDocName", file.name);
+        setShowDocContent(true);
+      }
+    } catch { /* silent */ }
+    setDocUploading(false);
+    e.target.value = "";
+  }
   const [newSec, setNewSec] = useState({ name: '', duration: '' });
   const vidLen = project.videoLength || 10;
   const estWords = vidLen * 150;
@@ -674,6 +783,14 @@ function ScriptTab({ project, update, presets }) {
     extra: "",
   });
   useEffect(() => { setP((p) => ({ ...p, words: vidLen * 150 })); }, [vidLen]);
+  // Sync preset intro/banned into script params whenever presets change (fills blanks only)
+  useEffect(() => {
+    setP((p) => ({
+      ...p,
+      intro: p.intro || presets.find((pr) => pr.type === "Intro")?.content || "",
+      banned: p.banned || presets.find((pr) => pr.type === "Avoid")?.content || "",
+    }));
+  }, [presets]);
   const abortRef = useRef(null);
   function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
   async function run(k, sys, usr, tok = 1500) {
@@ -722,43 +839,59 @@ function ScriptTab({ project, update, presets }) {
         <Fld label="Extra Instructions" mt={12}><TArea value={P.extra} onChange={(v) => setP((p) => ({ ...p, extra: v }))} rows={2} placeholder="Any other guidance…" /></Fld>
       </Card>
       <Card title="Linked Document" icon="📄">
+        {/* ── URL section ── */}
         {!project.scriptDocUrl ? (
-          <div>
-            <div
-              onDrop={(e) => {
-                e.preventDefault();
-                const url = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")).trim();
-                if (url) update("scriptDocUrl", url);
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              style={{ border: "2px dashed #334155", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "#0f172a", marginBottom: 12 }}
-            >
-              <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
-              <p style={{ color: "#94a3b8", fontSize: 13, margin: 0 }}>Drag a Google Doc tab here, or paste the link below</p>
-            </div>
+          <div
+            onDrop={(e) => { e.preventDefault(); const url = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")).trim(); if (url) update("scriptDocUrl", url); }}
+            onDragOver={(e) => e.preventDefault()}
+            style={{ border: "2px dashed #334155", borderRadius: 12, padding: "20px 16px", textAlign: "center", background: "#0f172a", marginBottom: 10 }}
+          >
+            <div style={{ fontSize: 26, marginBottom: 6 }}>🔗</div>
+            <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 10px" }}>Drag a Google Doc browser tab here, or paste the link</p>
             <div style={{ display: "flex", gap: 8 }}>
               <TInput value={docInput} onChange={setDocInput} placeholder="https://docs.google.com/document/d/…" style={{ flex: 1 }} onKeyDown={(e) => { if (e.key === "Enter" && docInput.trim()) { update("scriptDocUrl", docInput.trim()); setDocInput(""); } }} />
               <Btn sm onClick={() => { if (docInput.trim()) { update("scriptDocUrl", docInput.trim()); setDocInput(""); } }}>Link</Btn>
             </div>
           </div>
         ) : (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "#64748b", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{project.scriptDocUrl}</span>
               <Btn sm onClick={() => window.open(project.scriptDocUrl, "_blank")}>Open ↗</Btn>
-              <Btn sm color="gray" onClick={() => setShowEmbed((s) => !s)}>{showEmbed ? "Hide Preview" : "Preview"}</Btn>
+              <Btn sm color="gray" onClick={() => setShowEmbed((s) => !s)}>{showEmbed ? "Hide" : "Preview"}</Btn>
               <Btn sm color="gray" onClick={() => { update("scriptDocUrl", ""); setShowEmbed(false); }}>Remove</Btn>
             </div>
-            {showEmbed && (
-              <iframe
-                src={toDocPreviewUrl(project.scriptDocUrl)}
-                title="Linked document"
-                style={{ width: "100%", height: isMobile ? 400 : 600, border: "1px solid #334155", borderRadius: 10 }}
-                allow="clipboard-read; clipboard-write"
-              />
-            )}
+            {showEmbed && <iframe src={toDocPreviewUrl(project.scriptDocUrl)} title="Linked document" style={{ width: "100%", height: isMobile ? 400 : 600, border: "1px solid #334155", borderRadius: 10, marginTop: 10 }} allow="clipboard-read; clipboard-write" />}
           </div>
         )}
+
+        {/* ── Upload section ── */}
+        <div style={{ borderTop: "1px solid #1e293b", paddingTop: 12, marginTop: project.scriptDocUrl ? 12 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#64748b", marginBottom: 8 }}>OR UPLOAD A FILE</div>
+          {!project.scriptDocContent ? (
+            <div>
+              <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 8px" }}>Export your Google Doc as .docx or .txt, then upload it here to read it inside the app.</p>
+              <input ref={docFileRef} type="file" accept=".txt,.md,.docx" style={{ display: "none" }} onChange={handleDocUpload} />
+              <Btn sm color="gray" disabled={docUploading} onClick={() => docFileRef.current?.click()}>{docUploading ? "Reading…" : "📂 Upload .docx / .txt"}</Btn>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#93c5fd", fontWeight: 600 }}>📄 {project.scriptDocName}</span>
+                <Btn sm color="gray" onClick={() => setShowDocContent((s) => !s)}>{showDocContent ? "Hide" : "Read"}</Btn>
+                <Btn sm color="gray" onClick={() => update("scriptBody", project.scriptDocContent)}>Use as script</Btn>
+                <Btn sm color="gray" onClick={() => docFileRef.current?.click()}>Replace</Btn>
+                <Btn sm color="red" onClick={() => { update("scriptDocContent", ""); update("scriptDocName", ""); setShowDocContent(false); }}>Remove</Btn>
+              </div>
+              <input ref={docFileRef} type="file" accept=".txt,.md,.docx" style={{ display: "none" }} onChange={handleDocUpload} />
+              {showDocContent && (
+                <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 10, padding: 16, maxHeight: 500, overflowY: "auto" }}>
+                  <pre style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.8, fontFamily: "'Courier New', monospace" }}>{project.scriptDocContent}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </Card>
       <Card title="The Hook" icon="🎣">
         <TArea value={project.outlineHook} onChange={(v) => update("outlineHook", v)} rows={3} placeholder="What grabs attention in the first 30 seconds? Tease the payoff…" />
@@ -779,14 +912,42 @@ function ScriptTab({ project, update, presets }) {
           <input value={newSec.duration} onChange={(e) => setNewSec((p) => ({ ...p, duration: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Duration (e.g., 3 min)" style={{ ...inputStyle, width: isMobile ? "100%" : 150 }} />
         </div>
         <button onClick={addSection} style={{ width: "100%", marginTop: 8, padding: "9px 0", background: "#0f172a", border: "1px dashed #334155", borderRadius: 8, color: "#64748b", fontSize: 13, cursor: "pointer" }}>+ Add Section</button>
-        <AIOut k="outline" label="Generate Outline" loading={L} output={O}
-          onRun={() => run("outline",
-            `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
-            `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
-          )}
-          onUse={(t) => { update("outlineSections", parseSectionsFromAI(t)); }}
-          onStop={() => cancel("outline")}
-        />
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <Btn sm disabled={L["outline"]} onClick={() => run("outline",
+              `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
+              `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
+            )}>{L["outline"] ? "✦ Generating…" : "✦ Generate Outline"}</Btn>
+            {L["outline"] && <Btn sm color="gray" onClick={() => cancel("outline")}>■ Stop</Btn>}
+          </div>
+          {O["outline"] && (() => {
+            const parsed = parseSectionsFromAI(O["outline"]);
+            const isFallback = parsed.length === 1 && parsed[0].name === "Outline";
+            return (
+              <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ AI Suggested Outline</span>
+                  <Btn sm onClick={() => update("outlineSections", parsed)}>Use this outline</Btn>
+                </div>
+                {isFallback ? (
+                  <p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{O["outline"]}</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {parsed.map((s, i) => (
+                      <div key={i} style={{ background: "#0a1628", borderRadius: 8, padding: "10px 12px", borderLeft: "3px solid #3b82f6" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.notes ? 5 : 0 }}>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0" }}>{s.name}</span>
+                          {s.duration && <span style={{ fontSize: 11, color: "#60a5fa", background: "#1e3a5f", padding: "2px 8px", borderRadius: 10, flexShrink: 0 }}>{s.duration}</span>}
+                        </div>
+                        {s.notes && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{s.notes}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
         <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>📣 CALL TO ACTION</div>
           <TInput value={project.cta} onChange={(v) => update("cta", v)} placeholder="Your CTA… e.g., Subscribe and check out my next video on…" />
@@ -1278,11 +1439,11 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
             const isOver = dragOverDay === day;
             return (
               <div key={i} onDragOver={(e) => { if (day) { e.preventDefault(); setDragOverDay(day); } }} onDragLeave={() => setDragOverDay(null)} onDrop={(e) => day && handleCalendarDrop(e, day)}
-                style={{ minHeight: 52, padding: 3, borderRadius: 5, background: isOver ? "#1e3a5f" : day ? "#1a2234" : "transparent", border: isOver ? "2px dashed #3b82f6" : "2px solid transparent", transition: "all .15s" }}>
-                {day && <div style={{ fontSize: 12, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2 }}>{day}</div>}
+                style={{ minHeight: 52, padding: 3, borderRadius: 5, background: isOver ? "#1e3a5f" : day ? "#1a2234" : "transparent", border: isOver ? "2px dashed #3b82f6" : "2px solid transparent", transition: "all .15s", overflow: "hidden", minWidth: 0 }}>
+                {day && <div style={{ fontSize: 12, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2, flexShrink: 0 }}>{day}</div>}
                 {hits.map((p) => (
                   <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => open(p.id)} onContextMenu={(e) => { e.preventDefault(); setRs({ id: p.id, x: e.clientX, y: e.clientY }); }}
-                    style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 1 }}>
+                    style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 1, maxWidth: "100%", display: "block" }}>
                     {p.title}
                   </div>
                 ))}
@@ -1442,14 +1603,14 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               const isOver = dragOverDay === day || touchOverDay === day;
               return (
                 <div key={i} data-calday={day || ""} onDragOver={(e) => { if (day) { e.preventDefault(); setDragOverDay(day); } }} onDragLeave={() => setDragOverDay(null)} onDrop={(e) => day && handleCalendarDrop(e, day)}
-                  style={{ minHeight: isMobile ? 50 : 130, padding: isMobile ? 3 : 6, border: isOver ? "2px dashed #3b82f6" : "1px solid #1e293b", borderRadius: 6, background: isOver ? "#1e3a5f" : day ? "#1e293b" : "#1a2234", transition: "all .15s" }}>
-                  {day && <div style={{ fontSize: 13, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 5 }}>{day}</div>}
+                  style={{ minHeight: isMobile ? 50 : 130, padding: isMobile ? 3 : 6, border: isOver ? "2px dashed #3b82f6" : "1px solid #1e293b", borderRadius: 6, background: isOver ? "#1e3a5f" : day ? "#1e293b" : "#1a2234", transition: "all .15s", overflow: "hidden", minWidth: 0 }}>
+                  {day && <div style={{ fontSize: 13, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 5, flexShrink: 0 }}>{day}</div>}
                   {hits.map((p) => (
                     <div key={p.id} draggable
                       onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }}
                       onTouchStart={() => onProjectTouchStart(p.id)}
                       onClick={() => { setEditId(p.id); setPage("Project"); }}
-                      style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22` }}>
+                      style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22`, maxWidth: "100%", display: "block", boxSizing: "border-box" }}>
                       <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginBottom: 1 }}>{SC[p.stage] ? p.stage : ""}</span>
                       {p.title}
                     </div>
@@ -1492,13 +1653,25 @@ function PresetsPage({ presets, setPresets }) {
   const [type, setType] = useState("Custom");
   const [label, setLabel] = useState("");
   const [content, setContent] = useState("");
+  const [savedMsg, setSavedMsg] = useState("");
   const TYPES = [{ id: "Intro", lbl: "Intro Template" },{ id: "Outro", lbl: "Outro Template" },{ id: "Tone", lbl: "Tone / Style" },{ id: "Avoid", lbl: "Banned Words" },{ id: "CTA", lbl: "CTA Template" },{ id: "Niche", lbl: "Niche Context" },{ id: "Custom", lbl: "Custom Instruction" }];
   async function save() {
     if (!label.trim() || !content.trim()) return;
     const u = [...presets, { id: Date.now().toString(), type, label, content }];
     setPresets(u);
     await savePresets(u);
+    const confirmations = {
+      Intro: `Understood! Every script will open with: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
+      Outro: `Got it! Scripts will close with your outro template.`,
+      Tone: `Got it! I'll write in this style: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
+      Avoid: `Got it! I'll never use these words/phrases: ${content.slice(0, 100)}${content.length > 100 ? "…" : ""}`,
+      CTA: `Got it! I'll use this CTA: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
+      Niche: `Got it! I understand your niche context and will factor it into all AI suggestions.`,
+      Custom: `Got it! I'll always follow this instruction: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
+    };
+    setSavedMsg(confirmations[type] || `Preset "${label}" saved.`);
     setLabel(""); setContent("");
+    setTimeout(() => setSavedMsg(""), 7000);
   }
   async function del(id) { const u = presets.filter((p) => p.id !== id); setPresets(u); await savePresets(u); }
   const EX = [
@@ -1528,6 +1701,12 @@ function PresetsPage({ presets, setPresets }) {
         <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>CONTENT</div>
         <TArea value={content} onChange={setContent} rows={3} placeholder="Enter instructions…" />
         <Btn onClick={save} style={{ marginTop: 10 }}>+ Save Preset</Btn>
+        {savedMsg && (
+          <div style={{ marginTop: 12, background: "#052e16", border: "1px solid #22c55e", borderRadius: 10, padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>✓</span>
+            <p style={{ fontSize: 13, color: "#4ade80", margin: 0, lineHeight: 1.5 }}>{savedMsg}</p>
+          </div>
+        )}
       </div>
       <div style={{ background: "#0f1e3d", borderRadius: 12, border: "1px solid #1e3a8a", padding: 14, marginBottom: 16 }}>
         <p style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd", margin: "0 0 8px" }}>💡 Quick examples</p>
