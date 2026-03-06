@@ -441,6 +441,9 @@ function ResearchTab({ project, update, presets }) {
 function ThumbnailTab({ project, update, presets }) {
   const [L, setL] = useState({});
   const [O, setO] = useState({});
+  const [imgPrompt, setImgPrompt] = useState("");
+  const [genImgUrl, setGenImgUrl] = useState("");
+  const [imgLoading, setImgLoading] = useState(false);
   const fileRef = useRef();
   const abortRef = useRef(null);
   function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
@@ -451,6 +454,17 @@ function ThumbnailTab({ project, update, presets }) {
     try { const r = await ai(sys + pCtx(presets), usr, 1500, abortRef.current.signal); setO((o) => ({ ...o, [k]: r })); }
     catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
     setL((l) => ({ ...l, [k]: false }));
+  }
+  function generateImage() {
+    if (!imgPrompt.trim()) return;
+    setImgLoading(true);
+    setGenImgUrl("");
+    const seed = Math.floor(Math.random() * 999999);
+    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
+    const img = new Image();
+    img.onload = () => { setGenImgUrl(url); setImgLoading(false); };
+    img.onerror = () => { setImgLoading(false); };
+    img.src = url;
   }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   return (
@@ -480,6 +494,25 @@ function ThumbnailTab({ project, update, presets }) {
       <Card title="Text Hook / Overlay" icon="💬">
         <Fld label="Hook Text"><TInput value={project.thumbnailHook} onChange={(v) => update("thumbnailHook", v)} placeholder="e.g., 'I WAS WRONG', 'Never Do This'" /></Fld>
         <AIOut k="hooks" label="Generate Hooks" loading={L} output={O} onRun={() => run("hooks", "YouTube CTR expert.", `5 thumbnail text hooks (1-5 words) for:\nTitle: ${project.title}`)} onUse={(t) => update("thumbnailHook", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("hooks")} />
+      </Card>
+      <Card title="AI Image Generator" icon="🎨">
+        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 12px" }}>Describe a thumbnail idea and generate a visual concept to inspire your design.</p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
+          <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
+        </div>
+        {imgLoading && (
+          <div style={{ textAlign: "center", padding: "32px 0", color: "#64748b", fontSize: 13 }}>Generating image… this takes ~10 seconds</div>
+        )}
+        {genImgUrl && !imgLoading && (
+          <div>
+            <img src={genImgUrl} alt="Generated thumbnail concept" style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 10 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn sm onClick={() => { setImgPrompt(""); generateImage(); }}>Regenerate</Btn>
+              <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -564,6 +597,26 @@ function ScriptTab({ project, update, presets }) {
   const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <Card title="Script Parameters" icon="⚙️">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Fld label="Tone">{sel(P.tone, ["Conversational","Educational","Entertaining","Motivational","Casual","Professional"], (v) => setP((p) => ({ ...p, tone: v })))}</Fld>
+          <Fld label="Style">{sel(P.style, ["Storytelling","How-To","List","Personal Essay","News Style"], (v) => setP((p) => ({ ...p, style: v })))}</Fld>
+          <Fld label="Target Audience"><TInput value={P.audience} onChange={(v) => setP((p) => ({ ...p, audience: v }))} placeholder="e.g., beginner hikers 25-40" /></Fld>
+          <Fld label={`Word Count: ~${P.words.toLocaleString()}`}>
+            <input type="range" min={500} max={5000} step={250} value={P.words} onChange={(e) => setP((p) => ({ ...p, words: +e.target.value }))} style={{ width: "100%", accentColor: "#2563eb", marginTop: 8 }} />
+          </Fld>
+        </div>
+        <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
+          {[["broll","B-Roll cues"],["timestamps","Timestamps"]].map(([k, lbl]) => (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+              <input type="checkbox" checked={P[k]} onChange={(e) => setP((p) => ({ ...p, [k]: e.target.checked }))} style={{ accentColor: "#2563eb" }} />{lbl}
+            </label>
+          ))}
+        </div>
+        <Fld label="Intro Template" mt={12}><TInput value={P.intro} onChange={(v) => setP((p) => ({ ...p, intro: v }))} placeholder="e.g., Hey I'm Backpacker Luke, and today…" /></Fld>
+        <Fld label="Banned Words" mt={12}><TInput value={P.banned} onChange={(v) => setP((p) => ({ ...p, banned: v }))} placeholder="e.g., absolutely, amazing, game-changer" /></Fld>
+        <Fld label="Extra Instructions" mt={12}><TArea value={P.extra} onChange={(v) => setP((p) => ({ ...p, extra: v }))} rows={2} placeholder="Any other guidance…" /></Fld>
+      </Card>
       <Card title="The Hook" icon="🎣">
         <TArea value={project.outlineHook} onChange={(v) => update("outlineHook", v)} rows={3} placeholder="What grabs attention in the first 30 seconds? Tease the payoff…" />
       </Card>
@@ -588,32 +641,14 @@ function ScriptTab({ project, update, presets }) {
             `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
             `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
           )}
-          onUse={(t) => {
-            const parsed = parseSectionsFromAI(t);
-            update("outlineSections", parsed);
-          }}
+          onUse={(t) => { update("outlineSections", parseSectionsFromAI(t)); }}
           onStop={() => cancel("outline")}
         />
-      </Card>
-      <Card title="Script Parameters" icon="⚙️">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Fld label="Tone">{sel(P.tone, ["Conversational","Educational","Entertaining","Motivational","Casual","Professional"], (v) => setP((p) => ({ ...p, tone: v })))}</Fld>
-          <Fld label="Style">{sel(P.style, ["Storytelling","How-To","List","Personal Essay","News Style"], (v) => setP((p) => ({ ...p, style: v })))}</Fld>
-          <Fld label="Target Audience"><TInput value={P.audience} onChange={(v) => setP((p) => ({ ...p, audience: v }))} placeholder="e.g., beginner hikers 25-40" /></Fld>
-          <Fld label={`Word Count: ~${P.words.toLocaleString()}`}>
-            <input type="range" min={500} max={5000} step={250} value={P.words} onChange={(e) => setP((p) => ({ ...p, words: +e.target.value }))} style={{ width: "100%", accentColor: "#2563eb", marginTop: 8 }} />
-          </Fld>
+        <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>📣 CALL TO ACTION</div>
+          <TInput value={project.cta} onChange={(v) => update("cta", v)} placeholder="Your CTA… e.g., Subscribe and check out my next video on…" />
+          <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${project.title}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
         </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
-          {[["broll","B-Roll cues"],["timestamps","Timestamps"]].map(([k, lbl]) => (
-            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-              <input type="checkbox" checked={P[k]} onChange={(e) => setP((p) => ({ ...p, [k]: e.target.checked }))} style={{ accentColor: "#2563eb" }} />{lbl}
-            </label>
-          ))}
-        </div>
-        <Fld label="Intro Template" mt={12}><TInput value={P.intro} onChange={(v) => setP((p) => ({ ...p, intro: v }))} placeholder="e.g., Hey I'm Backpacker Luke, and today…" /></Fld>
-        <Fld label="Banned Words" mt={12}><TInput value={P.banned} onChange={(v) => setP((p) => ({ ...p, banned: v }))} placeholder="e.g., absolutely, amazing, game-changer" /></Fld>
-        <Fld label="Extra Instructions" mt={12}><TArea value={P.extra} onChange={(v) => setP((p) => ({ ...p, extra: v }))} rows={2} placeholder="Any other guidance…" /></Fld>
       </Card>
       <Card title="Full Script" icon="📝" action={<div style={{ display: "flex", gap: 6 }}><Btn sm onClick={() => run("script", "Expert YouTube scriptwriter. Write complete production-ready scripts.", prompt(), 3000)} disabled={L["script"]}>{L["script"] ? "✦ Writing…" : "✦ Auto-Generate Script"}</Btn>{L["script"] && <Btn sm color="gray" onClick={() => cancel("script")}>■ Stop</Btn>}</div>}>
         <TArea value={project.scriptBody} onChange={(v) => update("scriptBody", v)} rows={14} placeholder="Type or auto-generate your script…" style={{ fontFamily: "'Courier New',monospace", fontSize: 13 }} />
@@ -626,10 +661,6 @@ function ScriptTab({ project, update, presets }) {
             <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7, maxHeight: 280, overflowY: "auto" }}>{O["script"]}</pre>
           </div>
         )}
-      </Card>
-      <Card title="Call to Action" icon="📣">
-        <TInput value={project.cta} onChange={(v) => update("cta", v)} placeholder="Your CTA…" />
-        <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${project.title}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
       </Card>
     </div>
   );
