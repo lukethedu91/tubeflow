@@ -491,8 +491,14 @@ function ThumbnailTab({ project, update, presets }) {
         </div>
         {genImgUrl && (
           <div>
-            {imgLoading && <div style={{ textAlign: "center", padding: "32px 0", color: "#64748b", fontSize: 13 }}>Generating image… this takes ~15 seconds</div>}
-            <img src={genImgUrl} alt="Generated thumbnail concept" style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 10, display: imgLoading ? "none" : "block" }} onLoad={() => setImgLoading(false)} onError={() => setImgLoading(false)} />
+            <img
+              src={genImgUrl}
+              alt="Generated thumbnail concept"
+              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8, opacity: imgLoading ? 0 : 1, minHeight: imgLoading ? 4 : "auto", transition: "opacity 0.3s" }}
+              onLoad={() => setImgLoading(false)}
+              onError={() => { setImgLoading(false); setGenImgUrl(""); }}
+            />
+            {imgLoading && <div style={{ textAlign: "center", padding: "24px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take up to 20 seconds</div>}
             {!imgLoading && (
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn sm onClick={generateImage}>Regenerate</Btn>
