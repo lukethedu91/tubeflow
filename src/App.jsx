@@ -457,14 +457,10 @@ function ThumbnailTab({ project, update, presets }) {
   }
   function generateImage() {
     if (!imgPrompt.trim()) return;
-    setImgLoading(true);
-    setGenImgUrl("");
     const seed = Math.floor(Math.random() * 999999);
     const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
-    const img = new Image();
-    img.onload = () => { setGenImgUrl(url); setImgLoading(false); };
-    img.onerror = () => { setImgLoading(false); };
-    img.src = url;
+    setGenImgUrl(url);
+    setImgLoading(true);
   }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   return (
@@ -487,6 +483,25 @@ function ThumbnailTab({ project, update, presets }) {
         )}
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={upload} />
       </Card>
+      <Card title="AI Image Generator" icon="🎨">
+        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 12px" }}>Describe a thumbnail idea and generate a visual concept to inspire your design.</p>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
+          <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
+        </div>
+        {genImgUrl && (
+          <div>
+            {imgLoading && <div style={{ textAlign: "center", padding: "32px 0", color: "#64748b", fontSize: 13 }}>Generating image… this takes ~15 seconds</div>}
+            <img src={genImgUrl} alt="Generated thumbnail concept" style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 10, display: imgLoading ? "none" : "block" }} onLoad={() => setImgLoading(false)} onError={() => setImgLoading(false)} />
+            {!imgLoading && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn sm onClick={generateImage}>Regenerate</Btn>
+                <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
       <Card title="Concept Planning" icon="💡">
         <Fld label="Concept Description"><TArea value={project.thumbnailConcept} onChange={(v) => update("thumbnailConcept", v)} rows={3} placeholder="Describe your thumbnail idea…" /></Fld>
         <AIOut k="concept" label="Generate Concepts" loading={L} output={O} onRun={() => run("concept", "YouTube thumbnail design expert. Understand click psychology.", `3 thumbnail concepts for:\nTitle: ${project.title}\nNiche: ${project.niche}`)} onUse={(t) => update("thumbnailConcept", t)} onStop={() => cancel("concept")} />
@@ -494,25 +509,6 @@ function ThumbnailTab({ project, update, presets }) {
       <Card title="Text Hook / Overlay" icon="💬">
         <Fld label="Hook Text"><TInput value={project.thumbnailHook} onChange={(v) => update("thumbnailHook", v)} placeholder="e.g., 'I WAS WRONG', 'Never Do This'" /></Fld>
         <AIOut k="hooks" label="Generate Hooks" loading={L} output={O} onRun={() => run("hooks", "YouTube CTR expert.", `5 thumbnail text hooks (1-5 words) for:\nTitle: ${project.title}`)} onUse={(t) => update("thumbnailHook", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("hooks")} />
-      </Card>
-      <Card title="AI Image Generator" icon="🎨">
-        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 12px" }}>Describe a thumbnail idea and generate a visual concept to inspire your design.</p>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
-          <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
-        </div>
-        {imgLoading && (
-          <div style={{ textAlign: "center", padding: "32px 0", color: "#64748b", fontSize: 13 }}>Generating image… this takes ~10 seconds</div>
-        )}
-        {genImgUrl && !imgLoading && (
-          <div>
-            <img src={genImgUrl} alt="Generated thumbnail concept" style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 10 }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn sm onClick={() => { setImgPrompt(""); generateImage(); }}>Regenerate</Btn>
-              <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
-            </div>
-          </div>
-        )}
       </Card>
     </div>
   );
