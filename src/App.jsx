@@ -7,6 +7,17 @@ import { onAuthStateChanged } from "firebase/auth";
 function getKey(name) { return localStorage.getItem(`tubeflow-${name}`) || ""; }
 function setKey(name, val) { val ? localStorage.setItem(`tubeflow-${name}`, val) : localStorage.removeItem(`tubeflow-${name}`); }
 
+/* ── Mobile breakpoint hook ── */
+function useIsMobile() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1024);
+  useEffect(() => {
+    const h = () => setW(window.innerWidth);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return w < 768;
+}
+
 /* ── Storage helpers ── */
 async function stor(op, key, val) {
   try {
@@ -189,7 +200,22 @@ const NAV_ITEMS = [
   { id: "Settings", icon: "🔑", label: "API Keys"   },
 ];
 function Sidebar({ page, setPage, projects, ideas, user }) {
+  const isMobile = useIsMobile();
   const active = page === "Project" ? "Home" : page;
+
+  if (isMobile) {
+    return (
+      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 60, background: "#1e293b", borderTop: "1px solid #334155", display: "flex", alignItems: "stretch", zIndex: 200 }}>
+        {NAV_ITEMS.map(({ id, icon, label }) => (
+          <button key={id} onClick={() => setPage(id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, border: "none", background: active === id ? "#1e3a5f" : "transparent", color: active === id ? "#93c5fd" : "#64748b", cursor: "pointer", fontSize: 9, fontWeight: active === id ? 700 : 500, fontFamily: "Sora,sans-serif", padding: "6px 2px" }}>
+            <span style={{ fontSize: 20 }}>{icon}</span>
+            <span style={{ whiteSpace: "nowrap", overflow: "hidden", maxWidth: "100%", textOverflow: "ellipsis", paddingInline: 2 }}>{label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div style={{ width: 240, background: "#1e293b", borderRight: "1px solid #334155", position: "fixed", left: 0, top: 0, height: "100vh", display: "flex", flexDirection: "column", zIndex: 200 }}>
       {/* Logo */}
@@ -303,6 +329,7 @@ const YT_FILTERS = {
 };
 
 function YTSearch({ onAdd }) {
+  const isMobile = useIsMobile();
   const [q, setQ] = useState("");
   const [res, setRes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -395,7 +422,7 @@ function YTSearch({ onAdd }) {
       {done && !loading && res.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>No results — try a different query or filters.</p>}
       {res.length > 0 && (
         <div style={{ maxHeight: 560, overflowY: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
             {res.map((v, i) => {
               const hoursAgo = v.publishedAt ? (Date.now() - new Date(v.publishedAt)) / 3_600_000 : 0;
               const vph = hoursAgo > 0 && v.viewCount > 0 ? v.viewCount / hoursAgo : 0;
@@ -442,6 +469,7 @@ function YTSearch({ onAdd }) {
 
 /* ── Tab: Research ── */
 function ResearchTab({ project, update, presets }) {
+  const isMobile = useIsMobile();
   const [L, setL] = useState({});
   const [O, setO] = useState({});
   const abortRef = useRef(null);
@@ -482,7 +510,7 @@ function ResearchTab({ project, update, presets }) {
       </Card>
       <Card title="Competitor Videos" icon="👁️">
         {project.competitors.map((c, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10, paddingBottom: 10, borderBottom: i < project.competitors.length - 1 ? "1px solid #1e293b" : "none" }}>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8, marginBottom: 10, paddingBottom: 10, borderBottom: i < project.competitors.length - 1 ? "1px solid #1e293b" : "none" }}>
             <TInput value={c.title} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], title: v }; update("competitors", a); }} placeholder="Video title" />
             <TInput value={c.url} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], url: v }; update("competitors", a); }} placeholder="YouTube URL" />
             <TInput value={c.views} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], views: v }; update("competitors", a); }} placeholder="Views" />
@@ -620,6 +648,7 @@ const inputStyle = { border: '1px solid #334155', borderRadius: 8, padding: '8px
 
 /* ── Tab: Script ── */
 function ScriptTab({ project, update, presets }) {
+  const isMobile = useIsMobile();
   const [L, setL] = useState({});
   const [O, setO] = useState({});
   const [newSec, setNewSec] = useState({ name: '', duration: '' });
@@ -661,7 +690,7 @@ function ScriptTab({ project, update, presets }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Script Parameters" icon="⚙️">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
           <Fld label="Tone">{sel(P.tone, ["Conversational","Educational","Entertaining","Motivational","Casual","Professional"], (v) => setP((p) => ({ ...p, tone: v })))}</Fld>
           <Fld label="Style">{sel(P.style, ["Storytelling","How-To","List","Personal Essay","News Style"], (v) => setP((p) => ({ ...p, style: v })))}</Fld>
           <Fld label="Target Audience"><TInput value={P.audience} onChange={(v) => setP((p) => ({ ...p, audience: v }))} placeholder="e.g., beginner hikers 25-40" /></Fld>
@@ -688,15 +717,15 @@ function ScriptTab({ project, update, presets }) {
           <div key={s.id} style={{ background: "#0a1628", border: "1px solid #1e293b", borderRadius: 10, padding: 12, marginBottom: 10 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
               <input value={s.name} onChange={(e) => updateSection(s.id, "name", e.target.value)} placeholder="Section name" style={{ ...inputStyle, flex: 1 }} />
-              <input value={s.duration} onChange={(e) => updateSection(s.id, "duration", e.target.value)} placeholder="e.g., 3 minutes" style={{ ...inputStyle, width: 120 }} />
+              <input value={s.duration} onChange={(e) => updateSection(s.id, "duration", e.target.value)} placeholder="e.g., 3 min" style={{ ...inputStyle, width: isMobile ? 90 : 120, fontSize: isMobile ? 12 : 14 }} />
               <button onClick={() => deleteSection(s.id)} style={{ background: "none", border: "none", color: "#64748b", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
             </div>
             <TArea value={s.notes} onChange={(v) => updateSection(s.id, "notes", v)} rows={2} placeholder="Key points for this section…" />
           </div>
         ))}
-        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-          <input value={newSec.name} onChange={(e) => setNewSec((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Section name (e.g., Problem, Solution)" style={{ ...inputStyle, flex: 1 }} />
-          <input value={newSec.duration} onChange={(e) => setNewSec((p) => ({ ...p, duration: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Duration (e.g., 3 min)" style={{ ...inputStyle, width: 150 }} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+          <input value={newSec.name} onChange={(e) => setNewSec((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Section name (e.g., Problem, Solution)" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
+          <input value={newSec.duration} onChange={(e) => setNewSec((p) => ({ ...p, duration: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Duration (e.g., 3 min)" style={{ ...inputStyle, width: isMobile ? "100%" : 150 }} />
         </div>
         <button onClick={addSection} style={{ width: "100%", marginTop: 8, padding: "9px 0", background: "#0f172a", border: "1px dashed #334155", borderRadius: 8, color: "#64748b", fontSize: 13, cursor: "pointer" }}>+ Add Section</button>
         <AIOut k="outline" label="Generate Outline" loading={L} output={O}
@@ -731,6 +760,7 @@ function ScriptTab({ project, update, presets }) {
 
 /* ── Tab: Finish ── */
 function FinishTab({ project, update, presets }) {
+  const isMobile = useIsMobile();
   const [L, setL] = useState({});
   const [O, setO] = useState({});
   const [checks, setChecks] = useState(Array(7).fill(false));
@@ -750,7 +780,7 @@ function FinishTab({ project, update, presets }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Video Summary" icon="📊">
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
           {[["TITLE", project.title],["NICHE", project.niche],["KEYWORDS", project.keywords.join(", ")],["CTA", project.cta],["LENGTH", `${project.videoLength || 10} minutes`]].map(([l, v]) => (
             <div key={l} style={{ background: "#0f172a", borderRadius: 8, padding: "10px 12px" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", marginBottom: 3 }}>{l}</div>
@@ -842,40 +872,60 @@ function FinishTab({ project, update, presets }) {
 
 /* ── Project Page ── */
 function ProjectPage({ project, onUpdate, onBack, presets }) {
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Finish", icon: "🚀" }];
   function update(field, value) { onUpdate({ ...project, [field]: value }); }
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a" }}>
-      <div style={{ background: "#1e293b", borderBottom: "1px solid #334155", padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 12, color: "#64748b" }}>Workflow</span>
-          <span style={{ color: "#475569" }}>/</span>
-          <span style={{ fontWeight: 700, fontSize: 15, color: "#ffffff" }}>{project.title}</span>
+      {/* Top bar */}
+      <div style={{ background: "#1e293b", borderBottom: "1px solid #334155", padding: isMobile ? "0 12px" : "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
+          {!isMobile && <><span style={{ fontSize: 12, color: "#64748b" }}>Workflow</span><span style={{ color: "#475569" }}>/</span></>}
+          <span style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.title}</span>
           <Badge stage={project.stage} sm />
         </div>
-        <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 12px", fontSize: 13, background: "#1a2234", color: "#ffffff" }}>
+        <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 10px", fontSize: 12, background: "#1a2234", color: "#ffffff", flexShrink: 0 }}>
           {STAGES.map((s) => <option key={s}>{s}</option>)}
         </select>
       </div>
-      <div style={{ display: "flex", minHeight: "calc(100vh - 56px)" }}>
-        {/* Left sidebar tabs */}
-        <div style={{ width: 210, background: "#1e293b", borderRight: "1px solid #334155", padding: "24px 14px", flexShrink: 0, position: "sticky", top: 56, height: "calc(100vh - 56px)", overflowY: "auto" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", padding: "0 10px", marginBottom: 10 }}>SECTIONS</div>
-          {TABS.map((t, i) => (
-            <button key={t.label} onClick={() => setTab(i)} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, cursor: "pointer", background: tab === i ? "#1e3a5f" : "transparent", color: tab === i ? "#93c5fd" : "#94a3b8", fontWeight: tab === i ? 600 : 500, fontSize: 14, marginBottom: 3, textAlign: "left" }}>
-              <span style={{ fontSize: 17 }}>{t.icon}</span>{t.label}
-            </button>
-          ))}
+
+      {isMobile ? (
+        /* Mobile: horizontal tab strip + content */
+        <div>
+          <div style={{ display: "flex", background: "#1e293b", borderBottom: "1px solid #334155", overflowX: "auto" }}>
+            {TABS.map((t, i) => (
+              <button key={t.label} onClick={() => setTab(i)} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 18px", border: "none", borderBottom: tab === i ? "2px solid #3b82f6" : "2px solid transparent", background: "transparent", color: tab === i ? "#93c5fd" : "#64748b", fontWeight: tab === i ? 700 : 500, fontSize: 11, cursor: "pointer", fontFamily: "Sora,sans-serif", whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 18 }}>{t.icon}</span>{t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ padding: "16px 14px 80px" }}>
+            {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
+            {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
+            {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
+            {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+          </div>
         </div>
-        {/* Content */}
-        <div style={{ flex: 1, padding: "32px 40px", minWidth: 0, maxWidth: 1100 }}>
-          {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
-          {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
-          {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
-          {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+      ) : (
+        /* Desktop: left sidebar + content */
+        <div style={{ display: "flex", minHeight: "calc(100vh - 56px)" }}>
+          <div style={{ width: 210, background: "#1e293b", borderRight: "1px solid #334155", padding: "24px 14px", flexShrink: 0, position: "sticky", top: 56, height: "calc(100vh - 56px)", overflowY: "auto" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", padding: "0 10px", marginBottom: 10 }}>SECTIONS</div>
+            {TABS.map((t, i) => (
+              <button key={t.label} onClick={() => setTab(i)} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, cursor: "pointer", background: tab === i ? "#1e3a5f" : "transparent", color: tab === i ? "#93c5fd" : "#94a3b8", fontWeight: tab === i ? 600 : 500, fontSize: 14, marginBottom: 3, textAlign: "left" }}>
+                <span style={{ fontSize: 17 }}>{t.icon}</span>{t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ flex: 1, padding: "32px 40px", minWidth: 0, maxWidth: 1100 }}>
+            {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
+            {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
+            {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
+            {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -898,6 +948,7 @@ function PCard({ project, onClick, onDelete }) {
 
 /* ── Idea Vault Page ── */
 function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects }) {
+  const isMobile = useIsMobile();
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
@@ -990,16 +1041,16 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 40px" }}>
+    <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>💡 Idea Vault</h1>
+          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>💡 Idea Vault</h1>
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{ideas.length} ideas saved · drag to reorder</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn onClick={() => { setSubject(""); setShowPrompt(true); }} disabled={L.gen}>{L.gen ? "✦ Generating…" : "✦ AI Ideas"}</Btn>
-          {L.gen && <Btn color="gray" onClick={cancelGen}>■ Stop</Btn>}
-          <Btn onClick={addIdea}>+ New Idea</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Btn onClick={() => { setSubject(""); setShowPrompt(true); }} disabled={L.gen} sm={isMobile}>{L.gen ? "✦ Generating…" : "✦ AI Ideas"}</Btn>
+          {L.gen && <Btn color="gray" onClick={cancelGen} sm={isMobile}>■ Stop</Btn>}
+          <Btn onClick={addIdea} sm={isMobile}>+ New Idea</Btn>
         </div>
       </div>
 
@@ -1130,19 +1181,20 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
     }
   }
 
+  const isMobile = useIsMobile();
   const inProg = projects.filter((p) => p.stage !== "Published");
   const pub = projects.filter((p) => p.stage === "Published");
   return (
-    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "32px 40px" }}>
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Video Workflow</h1>
+          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Video Workflow</h1>
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>Research, plan, and launch your YouTube videos</p>
         </div>
-        <Btn onClick={createNew}>+ New Project</Btn>
+        <Btn onClick={createNew} sm={isMobile}>+ New Project</Btn>
       </div>
       {ideas?.length > 0 && (
-        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", gap: isMobile ? 10 : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 18 }}>💡</span>
             <span style={{ fontWeight: 600, fontSize: 13, color: "#cbd5e1" }}>{ideas.length} ideas in your vault</span>
@@ -1225,6 +1277,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
 
 /* ── Calendar Page ── */
 function CalendarPage({ projects, setProjects, setPage, setEditId }) {
+  const isMobile = useIsMobile();
   const [month, setMonth] = useState(new Date().getMonth());
   const [year, setYear] = useState(new Date().getFullYear());
   const [dragOverDay, setDragOverDay] = useState(null);
@@ -1260,16 +1313,16 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
     setPage("Project");
   }
   return (
-    <div style={{ maxWidth: 1500, margin: "0 auto", padding: "32px 40px" }}>
+    <div style={{ maxWidth: 1500, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Content Calendar</h1>
+          <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Content Calendar</h1>
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{projects.filter((p) => p.publishDate).length} videos scheduled · drag to reschedule</p>
         </div>
-        <Btn onClick={createNew}>+ New Video</Btn>
+        <Btn onClick={createNew} sm={isMobile}>+ New Video</Btn>
       </div>
-      <div style={{ display: "flex", gap: 18 }}>
-        <div style={{ flex: 1, background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 22 }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18 }}>
+        <div style={{ flex: 1, background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: isMobile ? 14 : 22 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <span style={{ fontWeight: 700, fontSize: 17 }}>{MONTHS[month]} {year}</span>
             <div style={{ display: "flex", gap: 6 }}>
@@ -1286,7 +1339,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               const isOver = dragOverDay === day;
               return (
                 <div key={i} onDragOver={(e) => { if (day) { e.preventDefault(); setDragOverDay(day); } }} onDragLeave={() => setDragOverDay(null)} onDrop={(e) => day && handleCalendarDrop(e, day)}
-                  style={{ minHeight: 130, padding: 6, border: isOver ? "2px dashed #3b82f6" : "1px solid #1e293b", borderRadius: 6, background: isOver ? "#1e3a5f" : day ? "#1e293b" : "#1a2234", transition: "all .15s" }}>
+                  style={{ minHeight: isMobile ? 50 : 130, padding: isMobile ? 3 : 6, border: isOver ? "2px dashed #3b82f6" : "1px solid #1e293b", borderRadius: 6, background: isOver ? "#1e3a5f" : day ? "#1e293b" : "#1a2234", transition: "all .15s" }}>
                   {day && <div style={{ fontSize: 13, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 5 }}>{day}</div>}
                   {hits.map((p) => (
                     <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => { setEditId(p.id); setPage("Project"); }}
@@ -1300,7 +1353,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
             })}
           </div>
         </div>
-        <div style={{ width: 280 }}>
+        <div style={{ width: isMobile ? "100%" : 280 }}>
           <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 16, marginBottom: 12 }}>
             <h3 style={{ fontFamily: "Sora,sans-serif", fontSize: 14, fontWeight: 700, margin: "0 0 12px" }}>Upcoming</h3>
             {upcoming.length === 0 && <p style={{ color: "#64748b", fontSize: 12 }}>No scheduled videos</p>}
@@ -1329,6 +1382,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
 
 /* ── Presets Page ── */
 function PresetsPage({ presets, setPresets }) {
+  const isMobile = useIsMobile();
   const [type, setType] = useState("Custom");
   const [label, setLabel] = useState("");
   const [content, setContent] = useState("");
@@ -1348,12 +1402,12 @@ function PresetsPage({ presets, setPresets }) {
     { type: "CTA", label: "Subscribe CTA", content: "If you found this helpful, hit subscribe and the bell so you never miss a video." },
   ];
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 40px" }}>
-      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 3px", color: "#ffffff" }}>Creator Presets</h1>
+    <div style={{ maxWidth: 1000, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
+      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: "0 0 3px", color: "#ffffff" }}>Creator Presets</h1>
       <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 24px" }}>Persistent rules and templates applied to all AI-generated content</p>
       <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 22, marginBottom: 16 }}>
         <h2 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 14px" }}>✦ Add New Preset</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>TYPE</div>
             <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", fontSize: 13, background: "#1a2234" }}>
@@ -1403,6 +1457,7 @@ function PresetsPage({ presets, setPresets }) {
 
 /* ── Settings Page ── */
 function SettingsPage() {
+  const isMobile = useIsMobile();
   const [anthropic, setAnthropic] = useState(getKey("anthropic-key"));
   const [youtube, setYoutube] = useState(getKey("youtube-key"));
   const [saved, setSaved] = useState(false);
@@ -1413,7 +1468,7 @@ function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   }
   return (
-    <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 40px" }}>
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
       <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 6px", color: "#ffffff" }}>🔑 API Keys</h1>
       <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 28px" }}>Keys are saved in your browser only — never sent to any server.</p>
       <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1495,6 +1550,7 @@ function LoginPage() {
 
 /* ── App Root ── */
 export default function App() {
+  const isMobile = useIsMobile();
   const [page, setPage] = useState("Home");
   const [projects, setProjects] = useState([]);
   const [presets, setPresets] = useState([]);
@@ -1555,7 +1611,7 @@ export default function App() {
   return (
     <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a" }}>
       <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} />
-      <main style={{ marginLeft: 240, flex: 1, background: "#0f172a", minHeight: "100vh" }}>
+      <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh" }}>
         {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
