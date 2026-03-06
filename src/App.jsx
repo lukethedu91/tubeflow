@@ -45,6 +45,10 @@ function blankProject() {
     thumbnailHook: "",
     thumbnailImageUrl: "",
     scriptOutline: "",
+    outlineHook: "",
+    outlineIntro: "",
+    outlineMainPoints: "",
+    outlineOutro: "",
     scriptBody: "",
     cta: "",
     metaTitles: [],
@@ -483,6 +487,38 @@ function ThumbnailTab({ project, update, presets }) {
   );
 }
 
+/* ── Outline helpers ── */
+function parseOutline(text) {
+  const buf = { hook: [], intro: [], main: [], outro: [] };
+  let current = null;
+  for (const line of text.split('\n')) {
+    const l = line.toLowerCase().replace(/[^a-z\s]/g, ' ');
+    if (/\bhook\b|\bopening\b/.test(l)) { current = 'hook'; continue; }
+    if (/\bintro\b/.test(l)) { current = 'intro'; continue; }
+    if (/\boutro\b|\bclosing\b|\bconclusion\b/.test(l)) { current = 'outro'; continue; }
+    if (/\bmain\b|\bcontent\b|\bbody\b|\bsection\b|\bpoint\b/.test(l)) { current = 'main'; continue; }
+    if (current && line.trim()) buf[current].push(line);
+  }
+  return {
+    hook: buf.hook.join('\n').trim(),
+    intro: buf.intro.join('\n').trim(),
+    main: buf.main.join('\n').trim(),
+    outro: buf.outro.join('\n').trim(),
+  };
+}
+
+function OutlineSection({ label, subtitle, value, onChange, placeholder, rows = 3 }) {
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{label}</span>
+        {subtitle && <span style={{ fontSize: 11, color: '#64748b' }}>{subtitle}</span>}
+      </div>
+      <TArea value={value} onChange={onChange} rows={rows} placeholder={placeholder} />
+    </div>
+  );
+}
+
 /* ── Tab: Script ── */
 function ScriptTab({ project, update, presets }) {
   const [L, setL] = useState({});
@@ -507,18 +543,33 @@ function ScriptTab({ project, update, presets }) {
     setL((l) => ({ ...l, [k]: false }));
   }
   function prompt() {
-    return `Write a full YouTube script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nTarget video length: ${vidLen} minutes (~${estWords} words)\nOutline:\n${project.scriptOutline}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${P.broll ? "Include [B-ROLL] cues" : ""}\n${P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
+    const outlineParts = [
+      project.outlineHook && `Hook:\n${project.outlineHook}`,
+      project.outlineIntro && `Intro:\n${project.outlineIntro}`,
+      project.outlineMainPoints && `Main Points:\n${project.outlineMainPoints}`,
+      project.outlineOutro && `Outro:\n${project.outlineOutro}`,
+    ].filter(Boolean).join('\n\n') || project.scriptOutline || "(none)";
+    return `Write a full YouTube script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nTarget video length: ${vidLen} minutes (~${estWords} words)\nOutline:\n${outlineParts}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${P.broll ? "Include [B-ROLL] cues" : ""}\n${P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
   }
   const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Script Outline" icon="📋" action={<span style={{ fontSize: 11, color: "#93c5fd", background: "#1e3a5f", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>🎯 {vidLen} min · ~{estWords.toLocaleString()} words</span>}>
-        <TArea value={project.scriptOutline} onChange={(v) => update("scriptOutline", v)} rows={5} placeholder="Outline: hook, main points, outro…" />
+        <OutlineSection label="🎣 Hook" subtitle="first 30 seconds" value={project.outlineHook} onChange={(v) => update("outlineHook", v)} placeholder="What grabs attention immediately? Tease the payoff…" rows={2} />
+        <OutlineSection label="👋 Intro" subtitle="0:30–1:30" value={project.outlineIntro} onChange={(v) => update("outlineIntro", v)} placeholder="Who you are, what they'll learn, why they should watch…" rows={3} />
+        <OutlineSection label="📌 Main Points" subtitle="core content" value={project.outlineMainPoints} onChange={(v) => update("outlineMainPoints", v)} placeholder="Your key sections, talking points, and timing…" rows={6} />
+        <OutlineSection label="🎬 Outro" subtitle="last 30–60 seconds" value={project.outlineOutro} onChange={(v) => update("outlineOutro", v)} placeholder="Recap, call to action, what's next…" rows={2} />
         <AIOut k="outline" label="Generate Outline" loading={L} output={O}
-          onRun={() => run("outline", "Expert YouTube scriptwriter. Create engaging structured outlines. The outline MUST be paced and structured for the given target video length.",
-            `Create an outline for a ${vidLen}-minute YouTube video (~${estWords} words when scripted).\n\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nStructure the outline with timing for each section that adds up to ${vidLen} minutes total. Include hook (first 30 seconds), main content sections with estimated duration, and outro.`
+          onRun={() => run("outline", "Expert YouTube scriptwriter. Create engaging structured outlines. The outline MUST be paced and structured for the given target video length. Use clear section headers: HOOK, INTRO, MAIN POINTS, OUTRO.",
+            `Create an outline for a ${vidLen}-minute YouTube video (~${estWords} words when scripted).\n\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nStructure the outline with timing for each section that adds up to ${vidLen} minutes total. Use these exact headers: HOOK (first 30 seconds), INTRO, MAIN POINTS (with sub-sections and estimated durations), OUTRO.`
           )}
-          onUse={(t) => update("scriptOutline", t)}
+          onUse={(t) => {
+            const parsed = parseOutline(t);
+            update("outlineHook", parsed.hook);
+            update("outlineIntro", parsed.intro);
+            update("outlineMainPoints", parsed.main);
+            update("outlineOutro", parsed.outro);
+          }}
           onStop={() => cancel("outline")}
         />
       </Card>
