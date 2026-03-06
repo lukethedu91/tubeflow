@@ -199,7 +199,7 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21" /></svg>
           </div>
           <div>
-            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>TubeFlow</div>
+            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>Vid Planner</div>
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Content Planner</div>
           </div>
         </div>
@@ -1467,7 +1467,7 @@ function LoginPage() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0f172a", fontFamily: "Sora, sans-serif" }}>
       <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
-        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>TubeFlow</h1>
+        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>Vid Planner</h1>
         <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch your YouTube videos with AI</p>
         <button
           onClick={handleSignIn}
@@ -1546,7 +1546,7 @@ export default function App() {
     }
   }, [page, ready, editProject]);
 
-  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading TubeFlow…</div>;
+  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading Vid Planner…</div>;
 
   if (!user) return <LoginPage />;
 

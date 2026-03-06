@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'TubeFlow — YouTube Video Planner',
-        short_name: 'TubeFlow',
+        name: 'Vid Planner — YouTube Video Planner',
+        short_name: 'Vid Planner',
         description: 'Research, plan, and launch your YouTube videos with AI-powered tools',
         theme_color: '#2563eb',
         background_color: '#0f172a',
