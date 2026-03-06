@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbOUHqaMFKKnZijZv9q_LjZZjI6Wkj98o",
@@ -12,6 +13,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+export async function loadUserKeys(uid) {
+  const snap = await getDoc(doc(db, "users", uid));
+  return snap.exists() ? snap.data() : {};
+}
+
+export async function saveUserKeys(uid, keys) {
+  await setDoc(doc(db, "users", uid), keys, { merge: true });
+}
 
 const provider = new GoogleAuthProvider();
 

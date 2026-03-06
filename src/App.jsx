@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserKeys, saveUserKeys } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 
 /* ── API key helpers (stored in localStorage) ── */
@@ -1470,6 +1470,12 @@ function SettingsPage() {
   function save() {
     setKey("anthropic-key", anthropic.trim());
     setKey("youtube-key", youtube.trim());
+    if (auth.currentUser) {
+      saveUserKeys(auth.currentUser.uid, {
+        anthropicKey: anthropic.trim(),
+        youtubeKey: youtube.trim(),
+      }).catch(() => {});
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -1576,9 +1582,16 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setAuthReady(true);
+      if (u) {
+        try {
+          const keys = await loadUserKeys(u.uid);
+          if (keys.anthropicKey) setKey("anthropic-key", keys.anthropicKey);
+          if (keys.youtubeKey) setKey("youtube-key", keys.youtubeKey);
+        } catch { /* silent — localStorage keys still work */ }
+      }
     });
     return unsub;
   }, []);
