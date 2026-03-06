@@ -3,6 +3,10 @@ import { storageGet, storageSet } from "./storage.js";
 import { auth, signInWithGoogle, signOutUser } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 
+/* ── API key helpers (stored in localStorage) ── */
+function getKey(name) { return localStorage.getItem(`tubeflow-${name}`) || ""; }
+function setKey(name, val) { val ? localStorage.setItem(`tubeflow-${name}`, val) : localStorage.removeItem(`tubeflow-${name}`); }
+
 /* ── Storage helpers ── */
 async function stor(op, key, val) {
   try {
@@ -69,14 +73,19 @@ function blankIdea() {
   };
 }
 
-/* ── AI helper ── */
-// All AI calls go through the Express proxy at /api/ai.
-// The Anthropic API key never touches the browser — it stays in .env on the server.
+/* ── AI helper — calls Anthropic directly from browser ── */
 async function ai(system, user, maxTokens = 1500, signal) {
+  const apiKey = getKey("anthropic-key");
+  if (!apiKey) return "⚠️ Add your Anthropic API key in Settings (🔑) to use AI features.";
   try {
-    const res = await fetch("/api/ai", {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
         max_tokens: maxTokens,
@@ -86,12 +95,11 @@ async function ai(system, user, maxTokens = 1500, signal) {
       signal,
     });
     const d = await res.json();
-    if (d.error) throw new Error(d.error);
+    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
     return d.content?.map((b) => b.text || "").join("") || "";
   } catch (e) {
     if (e.name === "AbortError") throw e;
-    console.error("AI call failed:", e);
-    return "⚠️ AI unavailable — please try again in a moment.";
+    return "⚠️ AI unavailable — check your API key in Settings.";
   }
 }
 function pCtx(presets) {
@@ -174,10 +182,11 @@ function AIOut({ k, loading, output, onRun, label, onUse, onStop }) {
 
 /* ── Sidebar ── */
 const NAV_ITEMS = [
-  { id: "Home",     icon: "▶", label: "Workflow"   },
+  { id: "Home",     icon: "▶",  label: "Workflow"   },
   { id: "Calendar", icon: "📅", label: "Calendar"   },
   { id: "Ideas",    icon: "💡", label: "Idea Vault" },
   { id: "Presets",  icon: "⚙️", label: "Presets"    },
+  { id: "Settings", icon: "🔑", label: "API Keys"   },
 ];
 function Sidebar({ page, setPage, projects, ideas, user }) {
   const active = page === "Project" ? "Home" : page;
@@ -258,6 +267,33 @@ function KwInput({ keywords, onChange }) {
   );
 }
 
+/* ── YouTube helpers ── */
+function durationSecs(iso) {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return +(m[1] || 0) * 3600 + +(m[2] || 0) * 60 + +(m[3] || 0);
+}
+function fmtViews(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M views";
+  if (n >= 1_000) return Math.round(n / 1_000) + "K views";
+  return n + " views";
+}
+function fmtDuration(iso) {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return "";
+  const h = +(m[1] || 0), min = +(m[2] || 0), s = +(m[3] || 0);
+  if (h) return `${h}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${min}:${String(s).padStart(2, "0")}`;
+}
+function timeAgo(str) {
+  const d = Math.floor((Date.now() - new Date(str)) / 86400000);
+  if (d < 1) return "Today";
+  if (d < 7) return `${d}d ago`;
+  if (d < 30) return `${Math.floor(d / 7)}w ago`;
+  if (d < 365) return `${Math.floor(d / 30)}mo ago`;
+  return `${Math.floor(d / 365)}y ago`;
+}
+
 /* ── YouTube Search ── */
 const YT_FILTERS = {
   type:     { label: "Type",     options: [{ val: "any", lbl: "All" }, { val: "video", lbl: "🎬 Videos" }, { val: "shorts", lbl: "📱 Shorts" }, { val: "live", lbl: "🔴 Live" }, { val: "upcoming", lbl: "⏰ Upcoming" }] },
@@ -279,17 +315,43 @@ function YTSearch({ onAdd }) {
     if (!q.trim()) return;
     setLoading(true); setDone(true);
     try {
-      const params = new URLSearchParams({ q, type: f.type, sort: f.sort, duration: f.duration, date: f.date });
-      const ytRes = await fetch(`/api/youtube?${params}`);
-      if (ytRes.ok) {
-        const data = await ytRes.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setRes(data);
-          setLoading(false);
-          return;
+      const ytKey = getKey("youtube-key");
+      if (ytKey) {
+        const { type, sort, duration, date } = f;
+        let searchQuery = q, eventTypeParam = "", effectiveDuration = duration;
+        if (type === "shorts") { searchQuery = q + " #shorts"; effectiveDuration = "short"; }
+        if (type === "live") eventTypeParam = "&eventType=live";
+        if (type === "upcoming") eventTypeParam = "&eventType=upcoming";
+        let publishedAfter = "";
+        if (date !== "any") {
+          const now = new Date();
+          if (date === "today") now.setHours(0, 0, 0, 0);
+          if (date === "week") now.setDate(now.getDate() - 7);
+          if (date === "month") now.setMonth(now.getMonth() - 1);
+          if (date === "year") now.setFullYear(now.getFullYear() - 1);
+          publishedAfter = `&publishedAfter=${now.toISOString()}`;
+        }
+        const durationParam = effectiveDuration !== "any" ? `&videoDuration=${effectiveDuration}` : "";
+        const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&maxResults=12&order=${sort}${durationParam}${eventTypeParam}${publishedAfter}&key=${ytKey}`);
+        const searchData = await searchRes.json();
+        if (!searchData.error && searchData.items?.length) {
+          const ids = searchData.items.map((i) => i.id.videoId).join(",");
+          const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${ids}&key=${ytKey}`);
+          const statsData = await statsRes.json();
+          const statsMap = Object.fromEntries((statsData.items || []).map((i) => [i.id, i]));
+          const results = searchData.items.map((item) => {
+            const id = item.id.videoId;
+            const stats = statsMap[id];
+            const viewCount = parseInt(stats?.statistics?.viewCount || 0);
+            const likeCount = parseInt(stats?.statistics?.likeCount || 0);
+            const publishedAt = item.snippet.publishedAt;
+            const rawDuration = stats?.contentDetails?.duration || "";
+            return { title: item.snippet.title, channel: item.snippet.channelTitle, views: fmtViews(viewCount), viewCount, likeCount, duration: fmtDuration(rawDuration), durationSecs: durationSecs(rawDuration), publishedAt, publishedAgo: timeAgo(publishedAt), thumbnail: item.snippet.thumbnails?.medium?.url || "", url: `https://www.youtube.com/watch?v=${id}` };
+          }).filter((v) => { if (type === "video") return v.durationSecs > 62; if (type === "shorts") return v.durationSecs <= 62; return true; });
+          setRes(results); setLoading(false); return;
         }
       }
-      // Fallback: AI-simulated results if YouTube API not configured
+      // Fallback: AI-simulated results if no YouTube key
       const raw = await ai("Return ONLY a valid JSON array, no markdown, no backticks.", `YouTube search: "${q}". Return JSON array of 12 objects: title, channel, views, duration, publishedAgo, thumbnail (visual desc), whyItWorks (1 sentence), url (youtube.com/watch?v=XXX). Real trends only.`, 2000);
       const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
       setRes(Array.isArray(parsed) ? parsed : []);
@@ -455,20 +517,12 @@ function ThumbnailTab({ project, update, presets }) {
     catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
     setL((l) => ({ ...l, [k]: false }));
   }
-  async function generateImage() {
+  function generateImage() {
     if (!imgPrompt.trim()) return;
     setImgLoading(true);
     setImgError("");
-    setGenImgUrl("");
-    try {
-      const res = await fetch(`/api/generate-image?prompt=${encodeURIComponent(imgPrompt)}`);
-      const data = await res.json();
-      if (data.url) { setGenImgUrl(data.url); }
-      else { setImgError(data.error || "Failed to generate image"); setImgLoading(false); }
-    } catch {
-      setImgError("Request failed — try again");
-      setImgLoading(false);
-    }
+    const seed = Math.floor(Math.random() * 999999);
+    setGenImgUrl(`https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=720&nologo=true&seed=${seed}`);
   }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   return (
@@ -1347,6 +1401,52 @@ function PresetsPage({ presets, setPresets }) {
   );
 }
 
+/* ── Settings Page ── */
+function SettingsPage() {
+  const [anthropic, setAnthropic] = useState(getKey("anthropic-key"));
+  const [youtube, setYoutube] = useState(getKey("youtube-key"));
+  const [saved, setSaved] = useState(false);
+  function save() {
+    setKey("anthropic-key", anthropic.trim());
+    setKey("youtube-key", youtube.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+  return (
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 40px" }}>
+      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 6px", color: "#ffffff" }}>🔑 API Keys</h1>
+      <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 28px" }}>Keys are saved in your browser only — never sent to any server.</p>
+      <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>Anthropic API Key <span style={{ color: "#f87171", fontSize: 11 }}>required</span></div>
+          <input
+            type="password"
+            value={anthropic}
+            onChange={(e) => setAnthropic(e.target.value)}
+            placeholder="sk-ant-api03-..."
+            style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
+          />
+          <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Get yours at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>console.anthropic.com</a></p>
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>YouTube Data API Key <span style={{ color: "#64748b", fontSize: 11 }}>optional</span></div>
+          <input
+            type="password"
+            value={youtube}
+            onChange={(e) => setYoutube(e.target.value)}
+            placeholder="AIza..."
+            style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
+          />
+          <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Without this, YouTube search uses AI simulation instead of real results. Get one free at <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>Google Cloud Console</a>.</p>
+        </div>
+        <div>
+          <Btn onClick={save}>{saved ? "✓ Saved!" : "Save Keys"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Login Screen ── */
 function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -1429,13 +1529,13 @@ export default function App() {
     });
   }, []);
 
-  const updateProject = useCallback((updated) => {
+  function updateProject(updated) {
     setProjects((prev) => {
       const next = prev.map((p) => (p.id === updated.id ? updated : p));
       stor("set", "tubeflow-projects", next);
       return next;
     });
-  }, []);
+  }
 
   const editProject = editId ? projects.find((p) => p.id === editId) : null;
 
@@ -1460,6 +1560,7 @@ export default function App() {
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Presets"  && <PresetsPage presets={presets} setPresets={setPresets} />}
+        {page === "Settings" && <SettingsPage />}
         {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} presets={presets} />}
       </main>
     </div>
