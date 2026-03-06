@@ -61,6 +61,7 @@ function blankProject() {
     thumbnailImageUrl: "",
     outlineHook: "",
     outlineSections: [],
+    scriptDocUrl: "",
     scriptBody: "",
     cta: "",
     metaTitles: [],
@@ -650,10 +651,18 @@ function calcTotalMins(sections) {
 const inputStyle = { border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 14, background: '#0f172a', color: '#ffffff', outline: 'none', boxSizing: 'border-box' };
 
 /* ── Tab: Script ── */
+function toDocPreviewUrl(url) {
+  if (!url) return "";
+  // Convert any Google Doc URL variant to /preview for embedding
+  return url.replace(/\/(edit|view|pub)(\?.*)?$/, "/preview");
+}
+
 function ScriptTab({ project, update, presets }) {
   const isMobile = useIsMobile();
   const [L, setL] = useState({});
   const [O, setO] = useState({});
+  const [showEmbed, setShowEmbed] = useState(false);
+  const [docInput, setDocInput] = useState("");
   const [newSec, setNewSec] = useState({ name: '', duration: '' });
   const vidLen = project.videoLength || 10;
   const estWords = vidLen * 150;
@@ -711,6 +720,45 @@ function ScriptTab({ project, update, presets }) {
         <Fld label="Intro Template" mt={12}><TInput value={P.intro} onChange={(v) => setP((p) => ({ ...p, intro: v }))} placeholder="e.g., Hey I'm Backpacker Luke, and today…" /></Fld>
         <Fld label="Banned Words" mt={12}><TInput value={P.banned} onChange={(v) => setP((p) => ({ ...p, banned: v }))} placeholder="e.g., absolutely, amazing, game-changer" /></Fld>
         <Fld label="Extra Instructions" mt={12}><TArea value={P.extra} onChange={(v) => setP((p) => ({ ...p, extra: v }))} rows={2} placeholder="Any other guidance…" /></Fld>
+      </Card>
+      <Card title="Linked Document" icon="📄">
+        {!project.scriptDocUrl ? (
+          <div>
+            <div
+              onDrop={(e) => {
+                e.preventDefault();
+                const url = (e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain")).trim();
+                if (url) update("scriptDocUrl", url);
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              style={{ border: "2px dashed #334155", borderRadius: 12, padding: "24px 16px", textAlign: "center", background: "#0f172a", marginBottom: 12 }}
+            >
+              <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+              <p style={{ color: "#94a3b8", fontSize: 13, margin: 0 }}>Drag a Google Doc tab here, or paste the link below</p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <TInput value={docInput} onChange={setDocInput} placeholder="https://docs.google.com/document/d/…" style={{ flex: 1 }} onKeyDown={(e) => { if (e.key === "Enter" && docInput.trim()) { update("scriptDocUrl", docInput.trim()); setDocInput(""); } }} />
+              <Btn sm onClick={() => { if (docInput.trim()) { update("scriptDocUrl", docInput.trim()); setDocInput(""); } }}>Link</Btn>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#64748b", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{project.scriptDocUrl}</span>
+              <Btn sm onClick={() => window.open(project.scriptDocUrl, "_blank")}>Open ↗</Btn>
+              <Btn sm color="gray" onClick={() => setShowEmbed((s) => !s)}>{showEmbed ? "Hide Preview" : "Preview"}</Btn>
+              <Btn sm color="gray" onClick={() => { update("scriptDocUrl", ""); setShowEmbed(false); }}>Remove</Btn>
+            </div>
+            {showEmbed && (
+              <iframe
+                src={toDocPreviewUrl(project.scriptDocUrl)}
+                title="Linked document"
+                style={{ width: "100%", height: isMobile ? 400 : 600, border: "1px solid #334155", borderRadius: 10 }}
+                allow="clipboard-read; clipboard-write"
+              />
+            )}
+          </div>
+        )}
       </Card>
       <Card title="The Hook" icon="🎣">
         <TArea value={project.outlineHook} onChange={(v) => update("outlineHook", v)} rows={3} placeholder="What grabs attention in the first 30 seconds? Tease the payoff…" />
