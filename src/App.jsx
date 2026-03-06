@@ -579,21 +579,24 @@ function ThumbnailTab({ project, update, presets }) {
           <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
           <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
         </div>
-        {imgLoading && <div style={{ textAlign: "center", padding: "28px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take 15–30 seconds</div>}
         {imgError && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 8 }}>⚠️ {imgError}</div>}
-        {genImgUrl && !imgLoading && (
+        {genImgUrl && (
           <div>
+            {imgLoading && <div style={{ textAlign: "center", padding: "28px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take 15–30 seconds</div>}
+            {/* Image is always mounted once genImgUrl is set so onLoad/onError can fire */}
             <img
               src={genImgUrl}
               alt="Generated thumbnail concept"
-              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8 }}
+              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8, display: imgLoading ? "none" : "block" }}
               onLoad={() => setImgLoading(false)}
               onError={() => { setImgLoading(false); setImgError("Image failed to load — try a different prompt"); setGenImgUrl(""); }}
             />
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn sm onClick={generateImage}>Regenerate</Btn>
-              <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
-            </div>
+            {!imgLoading && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn sm onClick={generateImage}>Regenerate</Btn>
+                <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
+              </div>
+            )}
           </div>
         )}
       </Card>
@@ -1198,12 +1201,14 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 18 }}>💡</span>
             <span style={{ fontWeight: 600, fontSize: 13, color: "#cbd5e1" }}>{ideas.length} ideas in your vault</span>
-            <div style={{ display: "flex", gap: 4, marginLeft: 8 }}>
-              {ideas.slice(0, 3).map((idea) => (
-                <span key={idea.id} style={{ background: "#2d1a00", color: "#fb923c", padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>{idea.title?.slice(0, 25)}{idea.title?.length > 25 ? "…" : ""}</span>
-              ))}
-              {ideas.length > 3 && <span style={{ color: "#64748b", fontSize: 11 }}>+{ideas.length - 3} more</span>}
-            </div>
+            {!isMobile && (
+              <div style={{ display: "flex", gap: 4, marginLeft: 8 }}>
+                {ideas.slice(0, 3).map((idea) => (
+                  <span key={idea.id} style={{ background: "#2d1a00", color: "#fb923c", padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 500 }}>{idea.title?.slice(0, 25)}{idea.title?.length > 25 ? "…" : ""}</span>
+                ))}
+                {ideas.length > 3 && <span style={{ color: "#64748b", fontSize: 11 }}>+{ideas.length - 3} more</span>}
+              </div>
+            )}
           </div>
           <button onClick={() => setPage("Ideas")} style={{ background: "none", border: "1px solid #334155", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontSize: 12, fontWeight: 500, color: "#93c5fd" }}>View All →</button>
         </div>
@@ -1218,7 +1223,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
-          {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748b", padding: "3px 0" }}>{d}</div>)}
+          {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748b", padding: "3px 0" }}>{isMobile ? d[0] : d}</div>)}
           {cells.map((day, i) => {
             const hits = day ? pod(day) : [];
             const today = day && new Date().getDate() === day && new Date().getMonth() === cm && new Date().getFullYear() === cy;
@@ -1332,7 +1337,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
-            {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#64748b", padding: "8px 0" }}>{d}</div>)}
+            {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#64748b", padding: "8px 0" }}>{isMobile ? d[0] : d}</div>)}
             {cells.map((day, i) => {
               const hits = day ? pod(day) : [];
               const today = day && new Date().getDate() === day && new Date().getMonth() === month && new Date().getFullYear() === year;
@@ -1461,6 +1466,7 @@ function SettingsPage() {
   const [anthropic, setAnthropic] = useState(getKey("anthropic-key"));
   const [youtube, setYoutube] = useState(getKey("youtube-key"));
   const [saved, setSaved] = useState(false);
+  const currentUser = auth.currentUser;
   function save() {
     setKey("anthropic-key", anthropic.trim());
     setKey("youtube-key", youtube.trim());
@@ -1498,6 +1504,15 @@ function SettingsPage() {
           <Btn onClick={save}>{saved ? "✓ Saved!" : "Save Keys"}</Btn>
         </div>
       </div>
+      {currentUser && (
+        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "16px 20px", marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#ffffff" }}>{currentUser.displayName || "Creator"}</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{currentUser.email}</div>
+          </div>
+          <Btn sm color="gray" onClick={signOutUser}>Sign out</Btn>
+        </div>
+      )}
     </div>
   );
 }
