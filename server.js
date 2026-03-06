@@ -171,7 +171,7 @@ function timeAgo(str) {
 /* ── Serve frontend in production ── */
 const distPath = join(__dirname, 'dist');
 app.use(express.static(distPath));
-app.get('*', (req, res) => {
+app.get('/{*splat}', (req, res) => {
   res.sendFile(join(distPath, 'index.html'));
 });
 
