@@ -1286,9 +1286,40 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   const [month, setMonth] = useState(new Date().getMonth());
   const [year, setYear] = useState(new Date().getFullYear());
   const [dragOverDay, setDragOverDay] = useState(null);
+  const [touchOverDay, setTouchOverDay] = useState(null);
+  const touchDragRef = useRef(null);
+  const calGridRef = useRef(null);
   const first = new Date(year, month, 1).getDay();
   const total = new Date(year, month + 1, 0).getDate();
   const cells = Array(first).fill(null).concat(Array.from({ length: total }, (_, i) => i + 1));
+
+  // Non-passive touchmove so we can preventDefault and stop page scroll while dragging
+  useEffect(() => {
+    const el = calGridRef.current;
+    if (!el) return;
+    function onTouchMove(e) {
+      if (!touchDragRef.current) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      const target = document.elementFromPoint(t.clientX, t.clientY);
+      const cell = target?.closest("[data-calday]");
+      setTouchOverDay(cell ? +cell.dataset.calday : null);
+    }
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
+  }, []);
+
+  function onProjectTouchStart(e, projectId) {
+    e.stopPropagation();
+    touchDragRef.current = projectId;
+  }
+  function onProjectTouchEnd() {
+    if (touchDragRef.current && touchOverDay) {
+      reschedule(touchDragRef.current, toDateStr(year, month, touchOverDay));
+    }
+    touchDragRef.current = null;
+    setTouchOverDay(null);
+  }
 
   function pod(day) {
     return projects.filter((p) => {
@@ -1322,7 +1353,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Content Calendar</h1>
-          <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{projects.filter((p) => p.publishDate).length} videos scheduled · drag to reschedule</p>
+          <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{projects.filter((p) => p.publishDate).length} videos scheduled · touch &amp; drag to reschedule</p>
         </div>
         <Btn onClick={createNew} sm={isMobile}>+ New Video</Btn>
       </div>
@@ -1336,18 +1367,22 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               <button onClick={() => { let m = month + 1, y = year; if (m > 11) { m = 0; y++; } setMonth(m); setYear(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>›</button>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+          <div ref={calGridRef} style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
             {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#64748b", padding: "8px 0" }}>{isMobile ? d[0] : d}</div>)}
             {cells.map((day, i) => {
               const hits = day ? pod(day) : [];
               const today = day && new Date().getDate() === day && new Date().getMonth() === month && new Date().getFullYear() === year;
-              const isOver = dragOverDay === day;
+              const isOver = dragOverDay === day || touchOverDay === day;
               return (
-                <div key={i} onDragOver={(e) => { if (day) { e.preventDefault(); setDragOverDay(day); } }} onDragLeave={() => setDragOverDay(null)} onDrop={(e) => day && handleCalendarDrop(e, day)}
+                <div key={i} data-calday={day || ""} onDragOver={(e) => { if (day) { e.preventDefault(); setDragOverDay(day); } }} onDragLeave={() => setDragOverDay(null)} onDrop={(e) => day && handleCalendarDrop(e, day)}
                   style={{ minHeight: isMobile ? 50 : 130, padding: isMobile ? 3 : 6, border: isOver ? "2px dashed #3b82f6" : "1px solid #1e293b", borderRadius: 6, background: isOver ? "#1e3a5f" : day ? "#1e293b" : "#1a2234", transition: "all .15s" }}>
                   {day && <div style={{ fontSize: 13, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 5 }}>{day}</div>}
                   {hits.map((p) => (
-                    <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => { setEditId(p.id); setPage("Project"); }}
+                    <div key={p.id} draggable
+                      onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }}
+                      onTouchStart={(e) => onProjectTouchStart(e, p.id)}
+                      onTouchEnd={onProjectTouchEnd}
+                      onClick={() => { if (!touchDragRef.current) { setEditId(p.id); setPage("Project"); } }}
                       style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22` }}>
                       <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginBottom: 1 }}>{SC[p.stage] ? p.stage : ""}</span>
                       {p.title}
