@@ -1431,7 +1431,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
             <button onClick={() => { let m = cm + 1, y = cy; if (m > 11) { m = 0; y++; } setCm(m); setCy(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>›</button>
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 2 }}>
           {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 600, color: "#64748b", padding: "3px 0" }}>{isMobile ? d[0] : d}</div>)}
           {cells.map((day, i) => {
             const hits = day ? pod(day) : [];
@@ -1595,7 +1595,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               <button onClick={() => { let m = month + 1, y = year; if (m > 11) { m = 0; y++; } setMonth(m); setYear(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>›</button>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 2 }}>
             {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#64748b", padding: "8px 0" }}>{isMobile ? d[0] : d}</div>)}
             {cells.map((day, i) => {
               const hits = day ? pod(day) : [];
