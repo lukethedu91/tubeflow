@@ -168,6 +168,27 @@ function timeAgo(str) {
   return `${Math.floor(d / 365)}y ago`;
 }
 
+/* ── Image generation proxy (Pollinations.ai) ── */
+app.get('/api/generate-image', async (req, res) => {
+  const { prompt } = req.query;
+  if (!prompt || typeof prompt !== 'string' || prompt.length > 500) {
+    return res.status(400).json({ error: 'Invalid prompt' });
+  }
+  const seed = Math.floor(Math.random() * 999999);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    res.set('Content-Type', contentType);
+    res.set('Cache-Control', 'public, max-age=3600');
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* ── Serve frontend in production ── */
 const distPath = join(__dirname, 'dist');
 app.use(express.static(distPath));

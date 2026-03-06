@@ -457,10 +457,8 @@ function ThumbnailTab({ project, update, presets }) {
   }
   function generateImage() {
     if (!imgPrompt.trim()) return;
-    const seed = Math.floor(Math.random() * 999999);
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
-    setGenImgUrl(url);
     setImgLoading(true);
+    setGenImgUrl(`/api/generate-image?prompt=${encodeURIComponent(imgPrompt)}&t=${Date.now()}`);
   }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   return (
