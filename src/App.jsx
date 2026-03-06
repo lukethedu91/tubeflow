@@ -46,9 +46,7 @@ function blankProject() {
     thumbnailImageUrl: "",
     scriptOutline: "",
     outlineHook: "",
-    outlineIntro: "",
-    outlineMainPoints: "",
-    outlineOutro: "",
+    outlineSections: [],
     scriptBody: "",
     cta: "",
     metaTitles: [],
@@ -488,43 +486,50 @@ function ThumbnailTab({ project, update, presets }) {
 }
 
 /* ── Outline helpers ── */
-function parseOutline(text) {
-  const buf = { hook: [], intro: [], main: [], outro: [] };
-  let current = null;
+function parseSectionsFromAI(text) {
+  // AI is asked to return JSON array; fall back to a single section if parsing fails
+  try {
+    const m = text.match(/\[[\s\S]*\]/);
+    if (m) {
+      const arr = JSON.parse(m[0]);
+      if (Array.isArray(arr) && arr.length) {
+        return arr.map((s) => ({ id: Math.random().toString(36).slice(2), name: s.name || 'Section', duration: s.duration || '', notes: s.notes || '' }));
+      }
+    }
+  } catch { /* fall through */ }
+  // Fallback: parse markdown headers like "## Intro (2 minutes)"
+  const sections = [];
+  let cur = null;
+  const buf = [];
+  const flush = () => { if (cur) { sections.push({ ...cur, notes: buf.join('\n').trim() }); buf.length = 0; } };
   for (const line of text.split('\n')) {
-    const l = line.toLowerCase().replace(/[^a-z\s]/g, ' ');
-    if (/\bhook\b|\bopening\b/.test(l)) { current = 'hook'; continue; }
-    if (/\bintro\b/.test(l)) { current = 'intro'; continue; }
-    if (/\boutro\b|\bclosing\b|\bconclusion\b/.test(l)) { current = 'outro'; continue; }
-    if (/\bmain\b|\bcontent\b|\bbody\b|\bsection\b|\bpoint\b/.test(l)) { current = 'main'; continue; }
-    if (current && line.trim()) buf[current].push(line);
+    const hm = line.match(/^#{1,3}\s+(.+?)\s*[\(\-–]\s*([^)\n]+?)\)?\s*$/);
+    if (hm) { flush(); cur = { id: Math.random().toString(36).slice(2), name: hm[1].trim(), duration: hm[2].trim() }; continue; }
+    if (cur) buf.push(line);
   }
-  return {
-    hook: buf.hook.join('\n').trim(),
-    intro: buf.intro.join('\n').trim(),
-    main: buf.main.join('\n').trim(),
-    outro: buf.outro.join('\n').trim(),
-  };
+  flush();
+  return sections.length ? sections : [{ id: '1', name: 'Outline', duration: '', notes: text.trim() }];
 }
 
-function OutlineSection({ label, subtitle, value, onChange, placeholder, rows = 3 }) {
-  return (
-    <div style={{ marginBottom: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{label}</span>
-        {subtitle && <span style={{ fontSize: 11, color: '#64748b' }}>{subtitle}</span>}
-      </div>
-      <TArea value={value} onChange={onChange} rows={rows} placeholder={placeholder} />
-    </div>
-  );
+function calcTotalMins(sections) {
+  let total = 0;
+  for (const s of sections) {
+    const m = (s.duration || '').match(/(\d+(?:\.\d+)?)/);
+    if (m) total += /sec/i.test(s.duration) ? parseFloat(m[1]) / 60 : parseFloat(m[1]);
+  }
+  return Math.round(total * 10) / 10;
 }
+
+const inputStyle = { border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 14, background: '#0f172a', color: '#ffffff', outline: 'none', boxSizing: 'border-box' };
 
 /* ── Tab: Script ── */
 function ScriptTab({ project, update, presets }) {
   const [L, setL] = useState({});
   const [O, setO] = useState({});
+  const [newSec, setNewSec] = useState({ name: '', duration: '' });
   const vidLen = project.videoLength || 10;
   const estWords = vidLen * 150;
+  const sections = project.outlineSections || [];
   const [P, setP] = useState({
     tone: "Conversational", style: "Storytelling", audience: "", words: estWords, broll: true, timestamps: true,
     intro: presets.find((p) => p.type === "Intro")?.content || "",
@@ -542,33 +547,50 @@ function ScriptTab({ project, update, presets }) {
     catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
     setL((l) => ({ ...l, [k]: false }));
   }
-  function prompt() {
-    const outlineParts = [
-      project.outlineHook && `Hook:\n${project.outlineHook}`,
-      project.outlineIntro && `Intro:\n${project.outlineIntro}`,
-      project.outlineMainPoints && `Main Points:\n${project.outlineMainPoints}`,
-      project.outlineOutro && `Outro:\n${project.outlineOutro}`,
-    ].filter(Boolean).join('\n\n') || project.scriptOutline || "(none)";
-    return `Write a full YouTube script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nTarget video length: ${vidLen} minutes (~${estWords} words)\nOutline:\n${outlineParts}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${P.broll ? "Include [B-ROLL] cues" : ""}\n${P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
+  function addSection() {
+    if (!newSec.name.trim()) return;
+    update("outlineSections", [...sections, { id: Math.random().toString(36).slice(2), name: newSec.name, duration: newSec.duration, notes: '' }]);
+    setNewSec({ name: '', duration: '' });
   }
+  function deleteSection(id) { update("outlineSections", sections.filter((s) => s.id !== id)); }
+  function updateSection(id, field, val) { update("outlineSections", sections.map((s) => s.id === id ? { ...s, [field]: val } : s)); }
+  function prompt() {
+    const hookPart = project.outlineHook ? `Hook (30s):\n${project.outlineHook}\n\n` : '';
+    const sectionsPart = sections.map((s) => `${s.name}${s.duration ? ` (${s.duration})` : ''}:\n${s.notes}`).join('\n\n');
+    const outlineText = hookPart + sectionsPart || project.scriptOutline || "(none)";
+    return `Write a full YouTube script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nTarget video length: ${vidLen} minutes (~${estWords} words)\nOutline:\n${outlineText}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${P.broll ? "Include [B-ROLL] cues" : ""}\n${P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
+  }
+  const totalMins = calcTotalMins(sections);
   const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Card title="Script Outline" icon="📋" action={<span style={{ fontSize: 11, color: "#93c5fd", background: "#1e3a5f", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>🎯 {vidLen} min · ~{estWords.toLocaleString()} words</span>}>
-        <OutlineSection label="🎣 Hook" subtitle="first 30 seconds" value={project.outlineHook} onChange={(v) => update("outlineHook", v)} placeholder="What grabs attention immediately? Tease the payoff…" rows={2} />
-        <OutlineSection label="👋 Intro" subtitle="0:30–1:30" value={project.outlineIntro} onChange={(v) => update("outlineIntro", v)} placeholder="Who you are, what they'll learn, why they should watch…" rows={3} />
-        <OutlineSection label="📌 Main Points" subtitle="core content" value={project.outlineMainPoints} onChange={(v) => update("outlineMainPoints", v)} placeholder="Your key sections, talking points, and timing…" rows={6} />
-        <OutlineSection label="🎬 Outro" subtitle="last 30–60 seconds" value={project.outlineOutro} onChange={(v) => update("outlineOutro", v)} placeholder="Recap, call to action, what's next…" rows={2} />
+      <Card title="The Hook" icon="🎣">
+        <TArea value={project.outlineHook} onChange={(v) => update("outlineHook", v)} rows={3} placeholder="What grabs attention in the first 30 seconds? Tease the payoff…" />
+      </Card>
+      <Card title="Script Outline" icon="📋" action={<span style={{ fontSize: 11, color: "#93c5fd", background: "#1e3a5f", padding: "3px 10px", borderRadius: 20, fontWeight: 600 }}>🎯 {totalMins > 0 ? `${totalMins} min total` : `${vidLen} min target`}</span>}>
+        {sections.map((s) => (
+          <div key={s.id} style={{ background: "#0a1628", border: "1px solid #1e293b", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <input value={s.name} onChange={(e) => updateSection(s.id, "name", e.target.value)} placeholder="Section name" style={{ ...inputStyle, flex: 1 }} />
+              <input value={s.duration} onChange={(e) => updateSection(s.id, "duration", e.target.value)} placeholder="e.g., 3 minutes" style={{ ...inputStyle, width: 120 }} />
+              <button onClick={() => deleteSection(s.id)} style={{ background: "none", border: "none", color: "#64748b", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+            </div>
+            <TArea value={s.notes} onChange={(v) => updateSection(s.id, "notes", v)} rows={2} placeholder="Key points for this section…" />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <input value={newSec.name} onChange={(e) => setNewSec((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Section name (e.g., Problem, Solution)" style={{ ...inputStyle, flex: 1 }} />
+          <input value={newSec.duration} onChange={(e) => setNewSec((p) => ({ ...p, duration: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Duration (e.g., 3 min)" style={{ ...inputStyle, width: 150 }} />
+        </div>
+        <button onClick={addSection} style={{ width: "100%", marginTop: 8, padding: "9px 0", background: "#0f172a", border: "1px dashed #334155", borderRadius: 8, color: "#64748b", fontSize: 13, cursor: "pointer" }}>+ Add Section</button>
         <AIOut k="outline" label="Generate Outline" loading={L} output={O}
-          onRun={() => run("outline", "Expert YouTube scriptwriter. Create engaging structured outlines. The outline MUST be paced and structured for the given target video length. Use clear section headers: HOOK, INTRO, MAIN POINTS, OUTRO.",
-            `Create an outline for a ${vidLen}-minute YouTube video (~${estWords} words when scripted).\n\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nStructure the outline with timing for each section that adds up to ${vidLen} minutes total. Use these exact headers: HOOK (first 30 seconds), INTRO, MAIN POINTS (with sub-sections and estimated durations), OUTRO.`
+          onRun={() => run("outline",
+            `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
+            `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
           )}
           onUse={(t) => {
-            const parsed = parseOutline(t);
-            update("outlineHook", parsed.hook);
-            update("outlineIntro", parsed.intro);
-            update("outlineMainPoints", parsed.main);
-            update("outlineOutro", parsed.outro);
+            const parsed = parseSectionsFromAI(t);
+            update("outlineSections", parsed);
           }}
           onStop={() => cancel("outline")}
         />
