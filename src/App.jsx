@@ -1286,48 +1286,58 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   const [month, setMonth] = useState(new Date().getMonth());
   const [year, setYear] = useState(new Date().getFullYear());
   const [dragOverDay, setDragOverDay] = useState(null);
-  const [touchOverDay, setTouchOverDay] = useState(null); // for visual highlight only
-  const touchDragRef = useRef(null);    // projectId being dragged
-  const touchOverDayRef = useRef(null); // current target day (ref = always current in handlers)
-  const touchMovedRef = useRef(false);  // did the finger move enough to count as a drag?
-  const calGridRef = useRef(null);
+  const [touchOverDay, setTouchOverDay] = useState(null);
+  const touchDragRef = useRef(null);
+  const touchOverDayRef = useRef(null);
+  const touchMovedRef = useRef(false);
+  // Keep current reschedule/month/year in refs so document listeners never go stale
+  const rescheduleRef = useRef(null);
+  const monthRef = useRef(month);
+  const yearRef = useRef(year);
+  rescheduleRef.current = reschedule;
+  monthRef.current = month;
+  yearRef.current = year;
+
   const first = new Date(year, month, 1).getDay();
   const total = new Date(year, month + 1, 0).getDate();
   const cells = Array(first).fill(null).concat(Array.from({ length: total }, (_, i) => i + 1));
 
-  // Non-passive touchmove so we can preventDefault and stop page scroll while dragging
   useEffect(() => {
-    const el = calGridRef.current;
-    if (!el) return;
-    function onTouchMove(e) {
+    function onMove(e) {
       if (!touchDragRef.current) return;
-      e.preventDefault();
+      e.preventDefault(); // stop page scroll while dragging
       touchMovedRef.current = true;
       const t = e.touches[0];
-      const target = document.elementFromPoint(t.clientX, t.clientY);
-      const cell = target?.closest("[data-calday]");
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const cell = el?.closest("[data-calday]");
       const day = cell ? (+cell.dataset.calday || null) : null;
       touchOverDayRef.current = day;
       setTouchOverDay(day);
     }
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onTouchMove);
+    function onEnd() {
+      if (touchDragRef.current && touchMovedRef.current && touchOverDayRef.current) {
+        rescheduleRef.current(
+          touchDragRef.current,
+          toDateStr(yearRef.current, monthRef.current, touchOverDayRef.current)
+        );
+      }
+      touchDragRef.current = null;
+      touchOverDayRef.current = null;
+      touchMovedRef.current = false;
+      setTouchOverDay(null);
+    }
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd);
+    return () => {
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+    };
   }, []);
 
-  function onProjectTouchStart(e, projectId) {
+  function onProjectTouchStart(projectId) {
     touchDragRef.current = projectId;
     touchMovedRef.current = false;
     touchOverDayRef.current = null;
-  }
-  function onProjectTouchEnd(e) {
-    if (touchDragRef.current && touchMovedRef.current && touchOverDayRef.current) {
-      reschedule(touchDragRef.current, toDateStr(year, month, touchOverDayRef.current));
-      e.preventDefault(); // suppress the phantom click that would open the project
-    }
-    touchDragRef.current = null;
-    touchOverDayRef.current = null;
-    touchMovedRef.current = false;
-    setTouchOverDay(null);
   }
 
   function pod(day) {
@@ -1376,7 +1386,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               <button onClick={() => { let m = month + 1, y = year; if (m > 11) { m = 0; y++; } setMonth(m); setYear(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>›</button>
             </div>
           </div>
-          <div ref={calGridRef} style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
             {DAYS.map((d) => <div key={d} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "#64748b", padding: "8px 0" }}>{isMobile ? d[0] : d}</div>)}
             {cells.map((day, i) => {
               const hits = day ? pod(day) : [];
@@ -1389,8 +1399,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                   {hits.map((p) => (
                     <div key={p.id} draggable
                       onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }}
-                      onTouchStart={(e) => onProjectTouchStart(e, p.id)}
-                      onTouchEnd={onProjectTouchEnd}
+                      onTouchStart={() => onProjectTouchStart(p.id)}
                       onClick={() => { setEditId(p.id); setPage("Project"); }}
                       style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22` }}>
                       <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginBottom: 1 }}>{SC[p.stage] ? p.stage : ""}</span>
