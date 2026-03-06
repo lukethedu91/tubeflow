@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { storageGet, storageSet } from "./storage.js";
 import { auth, signInWithGoogle, signOutUser } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
@@ -44,7 +44,6 @@ function blankProject() {
     thumbnailConcept: "",
     thumbnailHook: "",
     thumbnailImageUrl: "",
-    scriptOutline: "",
     outlineHook: "",
     outlineSections: [],
     scriptBody: "",
@@ -92,7 +91,7 @@ async function ai(system, user, maxTokens = 1500, signal) {
   } catch (e) {
     if (e.name === "AbortError") throw e;
     console.error("AI call failed:", e);
-    return "⚠️ AI unavailable — make sure the server is running (npm run start) and your ANTHROPIC_API_KEY is set in the .env file.";
+    return "⚠️ AI unavailable — please try again in a moment.";
   }
 }
 function pCtx(presets) {
@@ -444,6 +443,7 @@ function ThumbnailTab({ project, update, presets }) {
   const [imgPrompt, setImgPrompt] = useState("");
   const [genImgUrl, setGenImgUrl] = useState("");
   const [imgLoading, setImgLoading] = useState(false);
+  const [imgError, setImgError] = useState("");
   const fileRef = useRef();
   const abortRef = useRef(null);
   function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
@@ -455,10 +455,20 @@ function ThumbnailTab({ project, update, presets }) {
     catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
     setL((l) => ({ ...l, [k]: false }));
   }
-  function generateImage() {
+  async function generateImage() {
     if (!imgPrompt.trim()) return;
     setImgLoading(true);
-    setGenImgUrl(`/api/generate-image?prompt=${encodeURIComponent(imgPrompt)}&t=${Date.now()}`);
+    setImgError("");
+    setGenImgUrl("");
+    try {
+      const res = await fetch(`/api/generate-image?prompt=${encodeURIComponent(imgPrompt)}`);
+      const data = await res.json();
+      if (data.url) { setGenImgUrl(data.url); }
+      else { setImgError(data.error || "Failed to generate image"); setImgLoading(false); }
+    } catch {
+      setImgError("Request failed — try again");
+      setImgLoading(false);
+    }
   }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   return (
@@ -487,22 +497,21 @@ function ThumbnailTab({ project, update, presets }) {
           <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
           <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
         </div>
-        {genImgUrl && (
+        {imgLoading && <div style={{ textAlign: "center", padding: "28px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take 15–30 seconds</div>}
+        {imgError && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 8 }}>⚠️ {imgError}</div>}
+        {genImgUrl && !imgLoading && (
           <div>
             <img
               src={genImgUrl}
               alt="Generated thumbnail concept"
-              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8, opacity: imgLoading ? 0 : 1, minHeight: imgLoading ? 4 : "auto", transition: "opacity 0.3s" }}
+              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8 }}
               onLoad={() => setImgLoading(false)}
-              onError={() => { setImgLoading(false); setGenImgUrl(""); }}
+              onError={() => { setImgLoading(false); setImgError("Image failed to load — try a different prompt"); setGenImgUrl(""); }}
             />
-            {imgLoading && <div style={{ textAlign: "center", padding: "24px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take up to 20 seconds</div>}
-            {!imgLoading && (
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn sm onClick={generateImage}>Regenerate</Btn>
-                <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
-              </div>
-            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn sm onClick={generateImage}>Regenerate</Btn>
+              <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
+            </div>
           </div>
         )}
       </Card>
@@ -725,7 +734,7 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nCTA: ${project.cta}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${project.scriptOutline?.slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
+      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nCTA: ${project.cta}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${s.name}: ${s.notes}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
         <TArea value={project.metaDescription} onChange={(v) => update("metaDescription", v)} rows={6} placeholder="Your YouTube description…" />
         {O["desc"] && (
           <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginTop: 8 }}>

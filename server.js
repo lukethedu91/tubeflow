@@ -6,17 +6,37 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100kb' }));
+
+/* ── Simple in-memory rate limiter ── */
+const rateLimitMap = new Map();
+function rateLimit(key, maxPerMinute) {
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const hits = (rateLimitMap.get(key) || []).filter((t) => t > windowStart);
+  hits.push(now);
+  rateLimitMap.set(key, hits);
+  return hits.length > maxPerMinute;
+}
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [k, hits] of rateLimitMap) {
+    const fresh = hits.filter((t) => t > cutoff);
+    if (fresh.length === 0) rateLimitMap.delete(k); else rateLimitMap.set(k, fresh);
+  }
+}, 300_000);
 
 /* ── Anthropic proxy ── */
 const ALLOWED_MODELS = ['claude-sonnet-4-5', 'claude-haiku-4-5-20251001', 'claude-opus-4-6', 'claude-sonnet-4-6'];
 const MAX_TOKENS_LIMIT = 4000;
 
 app.post('/api/ai', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+  if (rateLimit(`ai:${ip}`, 20)) return res.status(429).json({ error: 'Too many requests — slow down.' });
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'ANTHROPIC_API_KEY not set in .env' });
-  }
+  if (!apiKey) return res.status(500).json({ error: 'AI service not configured.' });
 
   // Validate request — prevent model substitution and token abuse
   const { model, max_tokens, system, messages } = req.body;
@@ -26,8 +46,15 @@ app.post('/api/ai', async (req, res) => {
   if (!max_tokens || typeof max_tokens !== 'number' || max_tokens > MAX_TOKENS_LIMIT) {
     return res.status(400).json({ error: `max_tokens must be <= ${MAX_TOKENS_LIMIT}` });
   }
-  if (!Array.isArray(messages) || messages.length === 0) {
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > 10) {
     return res.status(400).json({ error: 'messages is required' });
+  }
+  // Validate message structure
+  for (const msg of messages) {
+    if (!msg || typeof msg.role !== 'string' || typeof msg.content !== 'string') {
+      return res.status(400).json({ error: 'Invalid message format' });
+    }
+    if (msg.content.length > 20000) return res.status(400).json({ error: 'Message too long' });
   }
 
   try {
@@ -49,10 +76,11 @@ app.post('/api/ai', async (req, res) => {
 
 /* ── YouTube Data API proxy ── */
 app.get('/api/youtube', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+  if (rateLimit(`yt:${ip}`, 15)) return res.status(429).json({ error: 'Too many requests — slow down.' });
+
   const apiKey = process.env.YOUTUBE_API_KEY;
-  if (!apiKey) {
-    return res.status(400).json({ error: 'YOUTUBE_API_KEY not set in .env' });
-  }
+  if (!apiKey) return res.status(500).json({ error: 'YouTube service not configured.' });
   const { q, sort = 'relevance', duration = 'any', date = 'any', type = 'any' } = req.query;
   if (!q || typeof q !== 'string') return res.status(400).json({ error: 'Missing query' });
   if (q.length > 200) return res.status(400).json({ error: 'Query too long' });
@@ -168,25 +196,17 @@ function timeAgo(str) {
   return `${Math.floor(d / 365)}y ago`;
 }
 
-/* ── Image generation proxy (Pollinations.ai) ── */
-app.get('/api/generate-image', async (req, res) => {
+/* ── Image generation — returns Pollinations URL for client to load directly ── */
+app.get('/api/generate-image', (req, res) => {
   const { prompt } = req.query;
   if (!prompt || typeof prompt !== 'string' || prompt.length > 500) {
     return res.status(400).json({ error: 'Invalid prompt' });
   }
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+  if (rateLimit(`img:${ip}`, 10)) return res.status(429).json({ error: 'Too many requests — slow down.' });
   const seed = Math.floor(Math.random() * 999999);
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1280&height=720&nologo=true&seed=${seed}`;
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
-    if (!response.ok) throw new Error(`Upstream error: ${response.status}`);
-    const contentType = response.headers.get('content-type') || 'image/jpeg';
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=3600');
-    const buffer = await response.arrayBuffer();
-    res.send(Buffer.from(buffer));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json({ url });
 });
 
 /* ── Serve frontend in production ── */
