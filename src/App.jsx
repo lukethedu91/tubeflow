@@ -159,9 +159,10 @@ function TArea({ value, onChange, placeholder, rows = 4, style = {} }) {
   return <textarea value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: 10, fontSize: 14, resize: "vertical", boxSizing: "border-box", lineHeight: 1.6, outline: "none", fontFamily: "inherit", background: "#0f172a", color: "#ffffff", ...style }} />;
 }
 function Card({ title, icon, children, action }) {
+  const isMobile = useIsMobile();
   return (
-    <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+    <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: isMobile ? "14px 14px" : 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
           {icon && <span>{icon}</span>}{title}
         </h3>
@@ -954,7 +955,7 @@ function ScriptTab({ project, update, presets }) {
           <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${project.title}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
         </div>
       </Card>
-      <Card title="Full Script" icon="📝" action={<div style={{ display: "flex", gap: 6 }}><Btn sm onClick={() => run("script", "Expert YouTube scriptwriter. Write complete production-ready scripts.", prompt(), 3000)} disabled={L["script"]}>{L["script"] ? "✦ Writing…" : "✦ Auto-Generate Script"}</Btn>{L["script"] && <Btn sm color="gray" onClick={() => cancel("script")}>■ Stop</Btn>}</div>}>
+      <Card title="Full Script" icon="📝" action={<div style={{ display: "flex", gap: 6 }}><Btn sm onClick={() => run("script", "Expert YouTube scriptwriter. Write complete production-ready scripts.", prompt(), 3000)} disabled={L["script"]}>{L["script"] ? "✦ Writing…" : isMobile ? "✦ Generate" : "✦ Auto-Generate Script"}</Btn>{L["script"] && <Btn sm color="gray" onClick={() => cancel("script")}>■ Stop</Btn>}</div>}>
         <TArea value={project.scriptBody} onChange={(v) => update("scriptBody", v)} rows={14} placeholder="Type or auto-generate your script…" style={{ fontFamily: "'Courier New',monospace", fontSize: 13 }} />
         {O["script"] && (
           <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
@@ -1030,7 +1031,7 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nCTA: ${project.cta}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${s.name}: ${s.notes}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
+      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nCTA: ${project.cta}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${s.name}: ${s.notes}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : isMobile ? "✦ Write" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
         <TArea value={project.metaDescription} onChange={(v) => update("metaDescription", v)} rows={6} placeholder="Your YouTube description…" />
         {O["desc"] && (
           <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginTop: 8 }}>
@@ -1093,7 +1094,11 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
       {/* Top bar */}
       <div style={{ background: "#1e293b", borderBottom: "1px solid #334155", padding: isMobile ? "0 12px" : "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
-          {!isMobile && <><span style={{ fontSize: 12, color: "#64748b" }}>Workflow</span><span style={{ color: "#475569" }}>/</span></>}
+          {isMobile ? (
+            <button onClick={onBack} style={{ background: "none", border: "none", color: "#93c5fd", fontSize: 20, cursor: "pointer", padding: "0 4px 0 0", lineHeight: 1, flexShrink: 0 }}>←</button>
+          ) : (
+            <><span style={{ fontSize: 12, color: "#64748b" }}>Workflow</span><span style={{ color: "#475569" }}>/</span></>
+          )}
           <span style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.title}</span>
           <Badge stage={project.stage} sm />
         </div>
@@ -1284,7 +1289,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
       )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <TInput value={search} onChange={setSearch} placeholder="Search ideas…" style={{ width: 220 }} />
+        <TInput value={search} onChange={setSearch} placeholder="Search ideas…" style={{ width: isMobile ? "100%" : 220 }} />
         {["All", ...IDEA_PRIORITIES].map((p) => (
           <button key={p} onClick={() => setFilter(p)} style={{ padding: "5px 12px", borderRadius: 20, border: "1px solid #334155", cursor: "pointer", fontSize: 12, fontWeight: 500, background: filter === p ? "#1e3a5f" : "#1e293b", color: filter === p ? "#93c5fd" : "#94a3b8" }}>{p}</button>
         ))}
@@ -1317,16 +1322,18 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
                   </div>
                 </div>
               ) : (
-                <div onClick={() => setEditingId(idea.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#93c5fd", background: "#1e3a5f", padding: "2px 8px", borderRadius: 20 }}>{idea.priority}</span>
-                      {idea.tags?.map((t, i) => <span key={i} style={{ fontSize: 10, color: "#94a3b8", background: "#1e293b", padding: "2px 6px", borderRadius: 10 }}>{t}</span>)}
+                <div onClick={() => setEditingId(idea.id)}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: "#93c5fd", background: "#1e3a5f", padding: "2px 8px", borderRadius: 20 }}>{idea.priority}</span>
+                        {idea.tags?.map((t, i) => <span key={i} style={{ fontSize: 10, color: "#94a3b8", background: "#1e293b", padding: "2px 6px", borderRadius: 10 }}>{t}</span>)}
+                      </div>
+                      <h4 style={{ fontSize: 14, fontWeight: 600, margin: "4px 0 2px", color: "#ffffff" }}>{idea.title || "Untitled idea"}</h4>
+                      {idea.notes && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{idea.notes}</p>}
                     </div>
-                    <h4 style={{ fontSize: 14, fontWeight: 600, margin: "4px 0 2px", color: "#ffffff" }}>{idea.title || "Untitled idea"}</h4>
-                    {idea.notes && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{idea.notes}</p>}
+                    <button onClick={(e) => { e.stopPropagation(); promoteToProject(idea); }} style={{ background: "#1e3a5f", border: "none", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontSize: 11, color: "#93c5fd", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 10, flexShrink: 0 }}>🚀 Promote</button>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); promoteToProject(idea); }} style={{ background: "#1e3a5f", border: "none", borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontSize: 11, color: "#93c5fd", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 10 }}>🚀 Promote</button>
                 </div>
               )}
             </div>
@@ -1689,7 +1696,7 @@ function PresetsPage({ presets, setPresets }) {
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>TYPE</div>
-            <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", fontSize: 13, background: "#1a2234" }}>
+            <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", fontSize: 13, background: "#1a2234", color: "#ffffff" }}>
               {TYPES.map((t) => <option key={t.id} value={t.id}>{t.lbl}</option>)}
             </select>
           </div>
