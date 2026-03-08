@@ -579,7 +579,7 @@ function ThumbnailTab({ project, update, presets }) {
       <Card title="Your Thumbnail" icon="🖼️">
         {project.thumbnailImageUrl ? (
           <div>
-            <img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", borderRadius: 10, border: "2px solid #334155", maxHeight: 280, objectFit: "cover" }} />
+            <img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", borderRadius: 10, border: "2px solid #334155", display: "block" }} />
             <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
               <Btn sm color="gray" onClick={() => fileRef.current?.click()}>Replace</Btn>
               <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", "")}>Remove</Btn>
