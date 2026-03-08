@@ -49,10 +49,11 @@ const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const IDEA_COLORS = ["#2d1a00","#1e3a5f","#1e3a5f","#052e16","#2d0a3e","#0f2042","#2d1a00","#052e16"];
 const IDEA_PRIORITIES = ["💡 Idea","⭐ High Priority","🔥 Hot Topic","📌 Planned"];
 
-function blankProject() {
+function blankProject(contentType = "long") {
   return {
     id: Date.now().toString(),
     title: "Untitled Video",
+    contentType,
     niche: "",
     keywords: [],
     competitors: [{ title: "", url: "", views: "", why: "" }],
@@ -71,7 +72,7 @@ function blankProject() {
     metaTags: [],
     publishDate: null,
     stage: "Research",
-    videoLength: 10,
+    videoLength: contentType === "short" ? 1 : 10,
     createdAt: new Date().toISOString(),
   };
 }
@@ -505,12 +506,21 @@ Niche: ${project.niche}`
           </div>
           {O["analyze"] && <AnalyzeOutput output={O["analyze"]} project={project} update={update} />}
         </Fld>
-        <Fld label="Target Video Length (minutes)" mt={12}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <input type="range" min={1} max={120} step={1} value={project.videoLength || 10} onChange={(e) => update("videoLength", +e.target.value)} style={{ flex: 1, accentColor: "#2563eb" }} />
-            <span style={{ fontWeight: 700, fontSize: 15, color: "#93c5fd", minWidth: 50, textAlign: "right" }}>{project.videoLength || 10} min</span>
-          </div>
-        </Fld>
+        {project.contentType === "short" ? (
+          <Fld label="Target Duration (seconds)" mt={12}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <input type="range" min={15} max={60} step={5} value={project.videoLength || 30} onChange={(e) => update("videoLength", +e.target.value)} style={{ flex: 1, accentColor: "#a855f7" }} />
+              <span style={{ fontWeight: 700, fontSize: 15, color: "#a855f7", minWidth: 50, textAlign: "right" }}>{project.videoLength || 30}s</span>
+            </div>
+          </Fld>
+        ) : (
+          <Fld label="Target Video Length (minutes)" mt={12}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <input type="range" min={1} max={120} step={1} value={project.videoLength || 10} onChange={(e) => update("videoLength", +e.target.value)} style={{ flex: 1, accentColor: "#2563eb" }} />
+              <span style={{ fontWeight: 700, fontSize: 15, color: "#93c5fd", minWidth: 50, textAlign: "right" }}>{project.videoLength || 10} min</span>
+            </div>
+          </Fld>
+        )}
         <Fld label="Target Publish Date" mt={12}>
           <input type="date" value={project.publishDate || ""} onChange={(e) => update("publishDate", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, width: "100%", boxSizing: "border-box", background: "#0f172a", color: project.publishDate ? "#ffffff" : "#64748b", colorScheme: "dark" }} />
         </Fld>
@@ -774,8 +784,10 @@ function ScriptTab({ project, update, presets }) {
     e.target.value = "";
   }
   const [newSec, setNewSec] = useState({ name: '', duration: '' });
-  const vidLen = project.videoLength || 10;
-  const estWords = vidLen * 150;
+  const isShort = project.contentType === "short";
+  const vidLen = project.videoLength || (isShort ? 30 : 10);
+  // Short form: ~2.5 words/sec spoken fast; long form: 150 words/min
+  const estWords = isShort ? Math.round(vidLen * 2.5) : vidLen * 150;
   const sections = project.outlineSections || [];
   const [P, setP] = useState({
     tone: "Conversational", style: "Storytelling", audience: "", words: estWords, broll: true, timestamps: true,
@@ -783,7 +795,7 @@ function ScriptTab({ project, update, presets }) {
     banned: presets.find((p) => p.type === "Avoid")?.content || "",
     extra: "",
   });
-  useEffect(() => { setP((p) => ({ ...p, words: vidLen * 150 })); }, [vidLen]);
+  useEffect(() => { setP((p) => ({ ...p, words: isShort ? Math.round(vidLen * 2.5) : vidLen * 150 })); }, [vidLen, isShort]);
   // Sync preset intro/banned into script params whenever presets change (fills blanks only)
   useEffect(() => {
     setP((p) => ({
@@ -813,7 +825,10 @@ function ScriptTab({ project, update, presets }) {
     const hookPart = project.outlineHook ? `Hook (30s):\n${project.outlineHook}\n\n` : '';
     const sectionsPart = sections.map((s) => `${s.name}${s.duration ? ` (${s.duration})` : ''}:\n${s.notes}`).join('\n\n');
     const outlineText = hookPart + sectionsPart || project.scriptOutline || "(none)";
-    return `Write a full YouTube script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nTarget video length: ${vidLen} minutes (~${estWords} words)\nOutline:\n${outlineText}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${P.broll ? "Include [B-ROLL] cues" : ""}\n${P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
+    const formatLine = isShort
+      ? `Format: YouTube Short / vertical short-form video (~${vidLen} seconds, ~${estWords} words). Keep it punchy, fast-paced, hook in first 2 seconds.`
+      : `Format: Long-form YouTube video (~${vidLen} minutes, ~${estWords} words)`;
+    return `Write a full script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n${formatLine}\nOutline:\n${outlineText}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${!isShort && P.broll ? "Include [B-ROLL] cues" : ""}\n${!isShort && P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
   }
   const totalMins = calcTotalMins(sections);
   const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
@@ -825,7 +840,7 @@ function ScriptTab({ project, update, presets }) {
           <Fld label="Style">{sel(P.style, ["Storytelling","How-To","List","Personal Essay","News Style"], (v) => setP((p) => ({ ...p, style: v })))}</Fld>
           <Fld label="Target Audience"><TInput value={P.audience} onChange={(v) => setP((p) => ({ ...p, audience: v }))} placeholder="e.g., beginner hikers 25-40" /></Fld>
           <Fld label={`Word Count: ~${P.words.toLocaleString()}`}>
-            <input type="range" min={500} max={5000} step={250} value={P.words} onChange={(e) => setP((p) => ({ ...p, words: +e.target.value }))} style={{ width: "100%", accentColor: "#2563eb", marginTop: 8 }} />
+            <input type="range" min={isShort ? 30 : 500} max={isShort ? 200 : 5000} step={isShort ? 10 : 250} value={P.words} onChange={(e) => setP((p) => ({ ...p, words: +e.target.value }))} style={{ width: "100%", accentColor: isShort ? "#a855f7" : "#2563eb", marginTop: 8 }} />
           </Fld>
         </div>
         <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
@@ -1101,6 +1116,7 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
           )}
           <span style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.title}</span>
           <Badge stage={project.stage} sm />
+          {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>📱 SHORT</span>}
         </div>
         <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 10px", fontSize: 12, background: "#1a2234", color: "#ffffff", flexShrink: 0 }}>
           {STAGES.map((s) => <option key={s}>{s}</option>)}
@@ -1147,12 +1163,40 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
   );
 }
 
+/* ── New Project Type Modal ── */
+function NewProjectModal({ onSelect, onClose }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 20, padding: 28, maxWidth: 420, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <h2 style={{ fontFamily: "Sora,sans-serif", fontSize: 18, fontWeight: 700, color: "#ffffff", margin: "0 0 6px" }}>New Project</h2>
+        <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 20px" }}>What type of content are you making?</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <button onClick={() => onSelect("long")} style={{ background: "#0f172a", border: "2px solid #334155", borderRadius: 14, padding: "20px 14px", cursor: "pointer", textAlign: "center", transition: "border-color .15s" }} onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#3b82f6")} onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#334155")}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🎬</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "#ffffff", marginBottom: 4 }}>Long Form</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>YouTube videos, tutorials, vlogs</div>
+          </button>
+          <button onClick={() => onSelect("short")} style={{ background: "#0f172a", border: "2px solid #334155", borderRadius: 14, padding: "20px 14px", cursor: "pointer", textAlign: "center", transition: "border-color .15s" }} onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#a855f7")} onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#334155")}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📱</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "#ffffff", marginBottom: 4 }}>Short Form</div>
+            <div style={{ fontSize: 12, color: "#64748b" }}>YouTube Shorts, Reels, TikToks</div>
+          </button>
+        </div>
+        <button onClick={onClose} style={{ marginTop: 16, width: "100%", background: "none", border: "1px solid #334155", borderRadius: 8, padding: "8px 0", color: "#64748b", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Project Card ── */
 function PCard({ project, onClick, onDelete }) {
   return (
     <div onClick={onClick} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", project.id); e.dataTransfer.effectAllowed = "move"; }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: 16, cursor: "pointer", transition: "box-shadow .15s" }} onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 14px rgba(109,40,217,.12)")} onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <Badge stage={project.stage} sm />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Badge stage={project.stage} sm />
+          {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>📱 SHORT</span>}
+        </div>
         <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) onDelete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
       </div>
       {project.thumbnailImageUrl && <img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", height: 70, objectFit: "cover", borderRadius: 7, marginBottom: 7 }} />}
@@ -1172,6 +1216,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
   const [L, setL] = useState({});
   const [showPrompt, setShowPrompt] = useState(false);
   const [subject, setSubject] = useState("");
+  const [promotePending, setPromotePending] = useState(null);
   const [visibleCount, setVisibleCount] = useState(5);
   const abortRef = useRef(null);
   function cancelGen() { abortRef.current?.abort(); setL((l) => ({ ...l, gen: false })); }
@@ -1224,8 +1269,9 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
     setIdeas(updated);
     saveIdeas(updated);
   }
-  function promoteToProject(idea) {
-    const p = blankProject();
+  function promoteToProject(idea) { setPromotePending(idea); }
+  function doPromote(idea, contentType) {
+    const p = blankProject(contentType);
     p.title = idea.title;
     p.niche = idea.tags?.join(", ") || "";
     const updated = [p, ...projects];
@@ -1234,6 +1280,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
     deleteIdea(idea.id);
     setEditId(p.id);
     setPage("Project");
+    setPromotePending(null);
   }
 
   const filtered = ideas.filter((idea) => {
@@ -1259,6 +1306,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
+      {promotePending && <NewProjectModal onSelect={(ct) => doPromote(promotePending, ct)} onClose={() => setPromotePending(null)} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>💡 Idea Vault</h1>
@@ -1365,6 +1413,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
   const [cy, setCy] = useState(new Date().getFullYear());
   const [rs, setRs] = useState(null);
   const [dragOverDay, setDragOverDay] = useState(null);
+  const [showTypeModal, setShowTypeModal] = useState(false);
   const first = new Date(cy, cm, 1).getDay();
   const total = new Date(cy, cm + 1, 0).getDate();
   const cells = Array(first).fill(null).concat(Array.from({ length: total }, (_, i) => i + 1));
@@ -1377,13 +1426,14 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
     });
   }
   function open(id) { setEditId(id); setPage("Project"); }
-  function createNew() {
-    const p = blankProject();
+  function createNew(contentType) {
+    const p = blankProject(contentType);
     const u = [p, ...projects];
     setProjects(u);
     stor("set", "tubeflow-projects", u);
     setEditId(p.id);
     setPage("Project");
+    setShowTypeModal(false);
   }
   function reschedule(id, date) {
     const u = projects.map((p) => (p.id === id ? { ...p, publishDate: date } : p));
@@ -1410,8 +1460,9 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Video Workflow</h1>
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>Research, plan, and launch your YouTube videos</p>
         </div>
-        <Btn onClick={createNew} sm={isMobile}>+ New Project</Btn>
+        <Btn onClick={() => setShowTypeModal(true)} sm={isMobile}>+ New Project</Btn>
       </div>
+      {showTypeModal && <NewProjectModal onSelect={createNew} onClose={() => setShowTypeModal(false)} />}
       {ideas?.length > 0 && (
         <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", gap: isMobile ? 10 : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1503,6 +1554,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [dragOverDay, setDragOverDay] = useState(null);
   const [touchOverDay, setTouchOverDay] = useState(null);
+  const [showTypeModal, setShowTypeModal] = useState(false);
   const touchDragRef = useRef(null);
   const touchOverDayRef = useRef(null);
   const touchMovedRef = useRef(false);
@@ -1575,22 +1627,24 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
     if (projectId && day) { reschedule(projectId, toDateStr(year, month, day)); }
   }
   const upcoming = [...projects].filter((p) => p.publishDate).sort((a, b) => a.publishDate.localeCompare(b.publishDate));
-  function createNew() {
-    const p = blankProject();
+  function createNew(contentType) {
+    const p = blankProject(contentType);
     const u = [p, ...projects];
     setProjects(u);
     stor("set", "tubeflow-projects", u);
     setEditId(p.id);
     setPage("Project");
+    setShowTypeModal(false);
   }
   return (
     <div style={{ maxWidth: 1500, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
+      {showTypeModal && <NewProjectModal onSelect={createNew} onClose={() => setShowTypeModal(false)} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Content Calendar</h1>
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{projects.filter((p) => p.publishDate).length} videos scheduled · touch &amp; drag to reschedule</p>
         </div>
-        <Btn onClick={createNew} sm={isMobile}>+ New Video</Btn>
+        <Btn onClick={() => setShowTypeModal(true)} sm={isMobile}>+ New Video</Btn>
       </div>
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 18 }}>
         <div style={{ flex: 1, background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: isMobile ? 14 : 22 }}>
