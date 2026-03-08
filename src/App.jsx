@@ -613,9 +613,10 @@ function ThumbnailTab({ project, update, presets }) {
               onError={() => { setImgLoading(false); setImgError("Image failed to load — try a different prompt"); setGenImgUrl(""); }}
             />
             {!imgLoading && (
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Btn sm onClick={generateImage}>Regenerate</Btn>
                 <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
+                <Btn sm color="gray" onClick={() => { setGenImgUrl(""); setImgPrompt(""); }}>🗑 Discard</Btn>
               </div>
             )}
           </div>
