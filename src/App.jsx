@@ -1110,11 +1110,8 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
       {/* Top bar */}
       <div style={{ background: "#1e293b", borderBottom: "1px solid #334155", padding: isMobile ? "0 12px" : "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
-          {isMobile ? (
-            <button onClick={onBack} style={{ background: "none", border: "none", color: "#93c5fd", fontSize: 20, cursor: "pointer", padding: "0 4px 0 0", lineHeight: 1, flexShrink: 0 }}>🏠</button>
-          ) : (
-            <><button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#93c5fd", padding: 0, fontWeight: 500 }}>🏠 Workflow</button><span style={{ color: "#475569" }}>/</span></>
-          )}
+          <button onClick={onBack} style={{ background: "#1a2234", border: "1px solid #334155", borderRadius: 8, color: "#93c5fd", fontSize: isMobile ? 13 : 13, cursor: "pointer", padding: "5px 10px", fontWeight: 600, flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>🏠 {!isMobile && "Home"}</button>
+          {!isMobile && <span style={{ color: "#475569" }}>/</span>}
           <span style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.title}</span>
           <Badge stage={project.stage} sm />
           {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>📱 SHORT</span>}
@@ -1210,7 +1207,7 @@ function PCard({ project, onClick, onDelete }) {
         </div>
         <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) onDelete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
       </div>
-      {project.thumbnailImageUrl && <img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", height: 70, objectFit: "cover", borderRadius: 7, marginBottom: 7 }} />}
+      {project.thumbnailImageUrl && <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 7, marginBottom: 7, overflow: "hidden" }}><img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0f172a" }} /></div>}
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 2px", color: "#ffffff", lineHeight: 1.4 }}>{project.title}</h3>
       {project.niche && <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>{project.niche}</p>}
       {project.publishDate && <p style={{ fontSize: 11, color: "#94a3b8", margin: "6px 0 0" }}>📅 {parseLocalDate(project.publishDate)?.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>}
