@@ -1110,9 +1110,9 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
       <div style={{ background: "#1e293b", borderBottom: "1px solid #334155", padding: isMobile ? "0 12px" : "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, overflow: "hidden" }}>
           {isMobile ? (
-            <button onClick={onBack} style={{ background: "none", border: "none", color: "#93c5fd", fontSize: 20, cursor: "pointer", padding: "0 4px 0 0", lineHeight: 1, flexShrink: 0 }}>←</button>
+            <button onClick={onBack} style={{ background: "none", border: "none", color: "#93c5fd", fontSize: 20, cursor: "pointer", padding: "0 4px 0 0", lineHeight: 1, flexShrink: 0 }}>🏠</button>
           ) : (
-            <><span style={{ fontSize: 12, color: "#64748b" }}>Workflow</span><span style={{ color: "#475569" }}>/</span></>
+            <><button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#93c5fd", padding: 0, fontWeight: 500 }}>🏠 Workflow</button><span style={{ color: "#475569" }}>/</span></>
           )}
           <span style={{ fontWeight: 700, fontSize: isMobile ? 13 : 15, color: "#ffffff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.title}</span>
           <Badge stage={project.stage} sm />
@@ -1138,6 +1138,11 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
             {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
             {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
             {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
+              <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 20px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 13, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
+              <span style={{ fontSize: 12, color: "#475569" }}>{tab + 1} / {TABS.length}</span>
+              <button onClick={() => setTab((t) => Math.min(TABS.length - 1, t + 1))} disabled={tab === TABS.length - 1} style={{ background: tab === TABS.length - 1 ? "transparent" : "#2563eb", border: "1px solid " + (tab === TABS.length - 1 ? "#334155" : "#2563eb"), borderRadius: 10, padding: "10px 20px", color: tab === TABS.length - 1 ? "#334155" : "#ffffff", fontSize: 13, fontWeight: 600, cursor: tab === TABS.length - 1 ? "default" : "pointer" }}>Next →</button>
+            </div>
           </div>
         </div>
       ) : (
@@ -1156,6 +1161,11 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
             {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
             {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
             {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 36, paddingTop: 20, borderTop: "1px solid #1e293b" }}>
+              <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 24px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 14, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
+              <span style={{ fontSize: 12, color: "#475569" }}>{TABS[tab].icon} {TABS[tab].label} · {tab + 1} / {TABS.length}</span>
+              <button onClick={() => setTab((t) => Math.min(TABS.length - 1, t + 1))} disabled={tab === TABS.length - 1} style={{ background: tab === TABS.length - 1 ? "transparent" : "#2563eb", border: "1px solid " + (tab === TABS.length - 1 ? "#334155" : "#2563eb"), borderRadius: 10, padding: "10px 24px", color: tab === TABS.length - 1 ? "#334155" : "#ffffff", fontSize: 14, fontWeight: 600, cursor: tab === TABS.length - 1 ? "default" : "pointer" }}>Next →</button>
+            </div>
           </div>
         </div>
       )}
