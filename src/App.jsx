@@ -236,7 +236,7 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21" /></svg>
           </div>
           <div>
-            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>TubeFlow</div>
+            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>Vid Planner</div>
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>YouTube Planner</div>
           </div>
         </div>
@@ -1778,9 +1778,9 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                       onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }}
                       onTouchStart={() => onProjectTouchStart(p.id)}
                       onClick={() => { setEditId(p.id); setPage("Project"); }}
-                      style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22`, maxWidth: "100%", display: "block", boxSizing: "border-box" }}>
-                      <span style={{ display: "block", fontSize: 9, opacity: 0.7, marginBottom: 1 }}>{SC[p.stage] ? p.stage : ""}</span>
-                      {p.title}
+                      style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22`, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, boxSizing: "border-box" }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
+                      <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.6, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
                   ))}
                 </div>
@@ -1793,10 +1793,13 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
             <h3 style={{ fontFamily: "Sora,sans-serif", fontSize: 14, fontWeight: 700, margin: "0 0 12px" }}>Upcoming</h3>
             {upcoming.length === 0 && <p style={{ color: "#64748b", fontSize: 12 }}>No scheduled videos</p>}
             {upcoming.slice(0, 6).map((p) => (
-              <div key={p.id} onClick={() => { setEditId(p.id); setPage("Project"); }} style={{ marginBottom: 12, cursor: "pointer" }}>
+              <div key={p.id} style={{ marginBottom: 12, display: "flex", alignItems: "flex-start", gap: 6 }}>
+                <div onClick={() => { setEditId(p.id); setPage("Project"); }} style={{ flex: 1, cursor: "pointer" }}>
                 <div style={{ marginBottom: 2 }}><Badge stage={p.stage} sm /></div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#ffffff", lineHeight: 1.4 }}>{p.title}</div>
                 <div style={{ fontSize: 10, color: "#64748b" }}>{parseLocalDate(p.publishDate)?.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
+                </div>
+                <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
               </div>
             ))}
           </div>
@@ -2019,7 +2022,7 @@ function LoginPage() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0f172a", fontFamily: "Sora, sans-serif" }}>
       <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
-        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>TubeFlow</h1>
+        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>Vid Planner</h1>
         <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch your YouTube videos with AI</p>
         <button
           onClick={handleSignIn}
@@ -2102,7 +2105,7 @@ export default function App() {
     }
   }, [page, ready, editProject]);
 
-  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading TubeFlow…</div>;
+  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading Vid Planner…</div>;
 
   if (!user) return <LoginPage />;
 
