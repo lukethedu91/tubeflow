@@ -36,11 +36,12 @@ async function savePresets(p) { await stor("set", "tubeflow-presets", p); }
 async function saveIdeas(ideas) { await stor("set", "tubeflow-ideas", ideas); }
 
 /* ── Constants ── */
-const STAGES = ["Research", "Thumbnail", "Script", "Finishing", "Published"];
+const STAGES = ["Research", "Thumbnail", "Script", "Filming", "Finishing", "Published"];
 const SC = {
   Research:  { bg: "#0c2340", text: "#60a5fa", dot: "#3b82f6" },
   Thumbnail: { bg: "#2d1500", text: "#fb923c", dot: "#f97316" },
   Script:    { bg: "#1e1b4b", text: "#a5b4fc", dot: "#818cf8" },
+  Filming:   { bg: "#2d1a00", text: "#fbbf24", dot: "#f59e0b" },
   Finishing: { bg: "#0c3040", text: "#38bdf8", dot: "#0ea5e9" },
   Published: { bg: "#052e16", text: "#4ade80", dot: "#22c55e" },
 };
@@ -107,7 +108,7 @@ async function ai(system, user, maxTokens = 1500, signal) {
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-4-6",
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: user }],
@@ -235,8 +236,8 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
             <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21" /></svg>
           </div>
           <div>
-            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>Vid Planner</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Content Planner</div>
+            <div style={{ fontFamily: "Sora,sans-serif", fontWeight: 700, fontSize: 17, color: "#e2e8f0", lineHeight: 1.2 }}>TubeFlow</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>YouTube Planner</div>
           </div>
         </div>
       </div>
@@ -2018,7 +2019,7 @@ function LoginPage() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0f172a", fontFamily: "Sora, sans-serif" }}>
       <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
-        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>Vid Planner</h1>
+        <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>TubeFlow</h1>
         <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch your YouTube videos with AI</p>
         <button
           onClick={handleSignIn}
@@ -2072,10 +2073,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const link = document.createElement("link");
-    link.href = "https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap";
-    link.rel = "stylesheet";
-    document.head.appendChild(link);
     Promise.all([
       stor("get", "tubeflow-projects"),
       stor("get", "tubeflow-presets"),
@@ -2105,7 +2102,7 @@ export default function App() {
     }
   }, [page, ready, editProject]);
 
-  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading Vid Planner…</div>;
+  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading TubeFlow…</div>;
 
   if (!user) return <LoginPage />;
 
