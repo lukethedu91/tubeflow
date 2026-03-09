@@ -198,7 +198,7 @@ function AIOut({ k, loading, output, onRun, label, onUse, onStop }) {
 
 /* ── Sidebar ── */
 const NAV_ITEMS = [
-  { id: "Home",     icon: "▶",  label: "Workflow"   },
+  { id: "Home",     icon: "🏠", label: "Workflow"   },
   { id: "Calendar", icon: "📅", label: "Calendar"   },
   { id: "Ideas",    icon: "💡", label: "Idea Vault" },
   { id: "Presets",  icon: "⚙️", label: "Presets"    },
