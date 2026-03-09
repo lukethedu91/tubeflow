@@ -1153,7 +1153,7 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Filming", icon: "🎬" }, { label: "Finish", icon: "🚀" }];
-  function update(field, value) { onUpdate({ ...project, [field]: value }); }
+  function update(field, value) { onUpdate({ ...project, [field]: value, isPlaceholder: false }); }
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a" }}>
       {/* Top bar */}
@@ -1514,7 +1514,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
   }
 
   const isMobile = useIsMobile();
-  const inProg = projects.filter((p) => p.stage !== "Published");
+  const inProg = projects.filter((p) => p.stage !== "Published" && !p.isPlaceholder);
   const pub = projects.filter((p) => p.stage === "Published");
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
