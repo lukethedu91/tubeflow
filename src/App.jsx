@@ -1196,13 +1196,17 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
       ) : (
         /* Desktop: left sidebar + content */
         <div style={{ display: "flex", minHeight: "calc(100vh - 56px)" }}>
-          <div style={{ width: 210, background: "#1e293b", borderRight: "1px solid #334155", padding: "24px 14px", flexShrink: 0, position: "sticky", top: 56, height: "calc(100vh - 56px)", overflowY: "auto" }}>
+          <div style={{ width: 210, background: "#1e293b", borderRight: "1px solid #334155", padding: "24px 14px", flexShrink: 0, position: "sticky", top: 56, height: "calc(100vh - 56px)", overflowY: "auto", display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", padding: "0 10px", marginBottom: 10 }}>SECTIONS</div>
             {TABS.map((t, i) => (
               <button key={t.label} onClick={() => setTab(i)} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, cursor: "pointer", background: tab === i ? "#1e3a5f" : "transparent", color: tab === i ? "#93c5fd" : "#94a3b8", fontWeight: tab === i ? 600 : 500, fontSize: 14, marginBottom: 3, textAlign: "left" }}>
                 <span style={{ fontSize: 17 }}>{t.icon}</span>{t.label}
               </button>
             ))}
+            <div style={{ flex: 1 }} />
+            <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, cursor: "pointer", background: "transparent", color: "#64748b", fontWeight: 500, fontSize: 14, textAlign: "left" }}>
+              <span style={{ fontSize: 17 }}>🏠</span>Home
+            </button>
           </div>
           <div style={{ flex: 1, padding: "32px 40px", minWidth: 0, maxWidth: 1100 }}>
             {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
