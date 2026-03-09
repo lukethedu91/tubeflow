@@ -1614,6 +1614,49 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   const [dragOverDay, setDragOverDay] = useState(null);
   const [touchOverDay, setTouchOverDay] = useState(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [showSchedulePanel, setShowSchedulePanel] = useState(false);
+  const [schedule, setSchedule] = useState(() => {
+    try { const s = localStorage.getItem("tubeflow-schedule"); return s ? JSON.parse(s) : { 0:"none",1:"none",2:"none",3:"none",4:"none",5:"none",6:"none" }; }
+    catch { return { 0:"none",1:"none",2:"none",3:"none",4:"none",5:"none",6:"none" }; }
+  });
+  const [weeksAhead, setWeeksAhead] = useState(8);
+  const [fillCount, setFillCount] = useState(null);
+
+  function updateScheduleDay(dow, val) {
+    const next = { ...schedule, [dow]: val };
+    setSchedule(next);
+    localStorage.setItem("tubeflow-schedule", JSON.stringify(next));
+  }
+
+  function fillSchedule() {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const end = new Date(today); end.setDate(today.getDate() + weeksAhead * 7);
+    const cur = new Date(today);
+    const newProjects = [];
+    while (cur <= end) {
+      const dow = cur.getDay();
+      const type = schedule[dow];
+      if (type !== "none") {
+        const dateStr = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`;
+        const alreadyHas = projects.some((p) => p.publishDate === dateStr);
+        if (!alreadyHas) {
+          const p = blankProject(type);
+          p.publishDate = dateStr;
+          p.title = type === "short" ? "📱 Short Placeholder" : "🎬 Long Form Placeholder";
+          p.isPlaceholder = true;
+          newProjects.push(p);
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    if (newProjects.length > 0) {
+      const updated = [...projects, ...newProjects];
+      setProjects(updated);
+      stor("set", "tubeflow-projects", updated);
+    }
+    setFillCount(newProjects.length);
+    setTimeout(() => setFillCount(null), 3000);
+  }
   const touchDragRef = useRef(null);
   const touchOverDayRef = useRef(null);
   const touchMovedRef = useRef(false);
@@ -1752,7 +1795,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
               </div>
             ))}
           </div>
-          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 16 }}>
+          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 16, marginBottom: 12 }}>
             <h3 style={{ fontSize: 12, fontWeight: 700, margin: "0 0 10px", color: "#cbd5e1" }}>Legend</h3>
             {STAGES.map((s) => (
               <div key={s} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -1760,6 +1803,34 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                 <span style={{ fontSize: 12, color: "#cbd5e1" }}>{s}</span>
               </div>
             ))}
+          </div>
+          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 16 }}>
+            <button onClick={() => setShowSchedulePanel((v) => !v)} style={{ background: "none", border: "none", cursor: "pointer", width: "100%", textAlign: "left", padding: 0, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ fontSize: 12, fontWeight: 700, margin: 0, color: "#93c5fd" }}>📅 Upload Schedule</h3>
+              <span style={{ color: "#64748b", fontSize: 12 }}>{showSchedulePanel ? "▲" : "▼"}</span>
+            </button>
+            {showSchedulePanel && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ fontSize: 11, color: "#64748b", margin: "0 0 10px" }}>Set which days you upload and what type. We'll fill in placeholders.</p>
+                {[["Sun",0],["Mon",1],["Tue",2],["Wed",3],["Thu",4],["Fri",5],["Sat",6]].map(([label, dow]) => (
+                  <div key={dow} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+                    <span style={{ fontSize: 12, color: "#94a3b8", width: 32 }}>{label}</span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {[["none","–","#334155","#64748b"],["short","📱","#2e1065","#a855f7"],["long","🎬","#1e3a5f","#93c5fd"]].map(([val, icon, bg, color]) => (
+                        <button key={val} onClick={() => updateScheduleDay(dow, val)} style={{ background: schedule[dow] === val ? bg : "transparent", border: `1px solid ${schedule[dow] === val ? color : "#334155"}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontSize: 12, color: schedule[dow] === val ? color : "#475569", fontWeight: schedule[dow] === val ? 700 : 400 }}>{icon}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, color: "#64748b", flexShrink: 0 }}>Fill next</span>
+                  <input type="number" min={1} max={52} value={weeksAhead} onChange={(e) => setWeeksAhead(+e.target.value)} style={{ width: 48, background: "#0f172a", border: "1px solid #334155", borderRadius: 6, padding: "4px 6px", color: "#ffffff", fontSize: 12, textAlign: "center" }} />
+                  <span style={{ fontSize: 11, color: "#64748b", flexShrink: 0 }}>weeks</span>
+                </div>
+                <button onClick={fillSchedule} style={{ marginTop: 10, width: "100%", background: "#2563eb", border: "none", borderRadius: 8, padding: "9px 0", color: "#ffffff", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Fill Calendar</button>
+                {fillCount !== null && <div style={{ marginTop: 8, fontSize: 12, color: "#4ade80", textAlign: "center" }}>{fillCount === 0 ? "All slots already filled!" : `✅ Added ${fillCount} placeholders`}</div>}
+              </div>
+            )}
           </div>
         </div>
       </div>
