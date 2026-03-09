@@ -70,6 +70,11 @@ function blankProject(contentType = "long") {
     metaTitles: [],
     metaDescription: "",
     metaTags: [],
+    filmingDate: null,
+    filmingLocation: "",
+    filmingEquipment: "",
+    filmingNotes: "",
+    shotList: [],
     publishDate: null,
     stage: "Research",
     videoLength: contentType === "short" ? 1 : 10,
@@ -987,6 +992,50 @@ function ScriptTab({ project, update, presets }) {
   );
 }
 
+/* ── Tab: Filming ── */
+function FilmingTab({ project, update }) {
+  const isMobile = useIsMobile();
+  const shots = project.shotList || [];
+  function addShot() { update("shotList", [...shots, { id: Date.now().toString(), text: "", done: false }]); }
+  function updateShot(id, field, val) { update("shotList", shots.map((s) => s.id === id ? { ...s, [field]: val } : s)); }
+  function deleteShot(id) { update("shotList", shots.filter((s) => s.id !== id)); }
+  const doneCount = shots.filter((s) => s.done).length;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <Card title="Filming Details" icon="🎬">
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Fld label="Filming Date">
+            <input type="date" value={project.filmingDate || ""} onChange={(e) => update("filmingDate", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, width: "100%", boxSizing: "border-box", background: "#0f172a", color: project.filmingDate ? "#ffffff" : "#64748b", colorScheme: "dark" }} />
+          </Fld>
+          <Fld label="Location">
+            <TInput value={project.filmingLocation || ""} onChange={(v) => update("filmingLocation", v)} placeholder="e.g., Home studio, outdoor trail…" />
+          </Fld>
+        </div>
+        <Fld label="Equipment" mt={12}>
+          <TInput value={project.filmingEquipment || ""} onChange={(v) => update("filmingEquipment", v)} placeholder="e.g., Sony A7IV, DJI Osmo, Rode mic…" />
+        </Fld>
+        <Fld label="Filming Notes" mt={12}>
+          <TArea value={project.filmingNotes || ""} onChange={(v) => update("filmingNotes", v)} rows={3} placeholder="Lighting setup, wardrobe, reminders for the shoot…" />
+        </Fld>
+      </Card>
+      <Card title="Shot List" icon="🎥" action={shots.length > 0 && <span style={{ fontSize: 12, color: "#64748b" }}>{doneCount}/{shots.length} done</span>}>
+        {shots.length === 0 && <p style={{ color: "#64748b", fontSize: 13, margin: "0 0 12px" }}>No shots yet — add the key clips you need to capture.</p>}
+        {shots.map((shot) => (
+          <div key={shot.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <input type="checkbox" checked={shot.done} onChange={(e) => updateShot(shot.id, "done", e.target.checked)} style={{ accentColor: "#2563eb", width: 16, height: 16, flexShrink: 0, cursor: "pointer" }} />
+            <TInput value={shot.text} onChange={(v) => updateShot(shot.id, "text", v)} placeholder="Describe the shot…" style={{ flex: 1, textDecoration: shot.done ? "line-through" : "none", color: shot.done ? "#475569" : "#ffffff" }} />
+            <button onClick={() => deleteShot(shot.id)} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: "0 2px", flexShrink: 0 }}>×</button>
+          </div>
+        ))}
+        <button onClick={addShot} style={{ background: "none", border: "1px dashed #334155", borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: "#94a3b8", fontSize: 13, width: "100%", marginTop: 4 }}>+ Add Shot</button>
+        {doneCount === shots.length && shots.length > 0 && (
+          <div style={{ marginTop: 12, background: "#052e16", border: "1px solid #166534", borderRadius: 8, padding: "8px 14px", fontSize: 13, color: "#4ade80", fontWeight: 600 }}>✅ All shots captured!</div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 /* ── Tab: Finish ── */
 function FinishTab({ project, update, presets }) {
   const isMobile = useIsMobile();
@@ -1103,7 +1152,7 @@ function FinishTab({ project, update, presets }) {
 function ProjectPage({ project, onUpdate, onBack, presets }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
-  const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Finish", icon: "🚀" }];
+  const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Filming", icon: "🎬" }, { label: "Finish", icon: "🚀" }];
   function update(field, value) { onUpdate({ ...project, [field]: value }); }
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a" }}>
@@ -1135,7 +1184,8 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
             {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
             {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
             {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
-            {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+            {tab === 3 && <FilmingTab project={project} update={update} />}
+            {tab === 4 && <FinishTab project={project} update={update} presets={presets} />}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
               <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 20px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 13, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
               <span style={{ fontSize: 12, color: "#475569" }}>{tab + 1} / {TABS.length}</span>
@@ -1158,7 +1208,8 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
             {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
             {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
             {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
-            {tab === 3 && <FinishTab project={project} update={update} presets={presets} />}
+            {tab === 3 && <FilmingTab project={project} update={update} />}
+            {tab === 4 && <FinishTab project={project} update={update} presets={presets} />}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 36, paddingTop: 20, borderTop: "1px solid #1e293b" }}>
               <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 24px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 14, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
               <span style={{ fontSize: 12, color: "#475569" }}>{TABS[tab].icon} {TABS[tab].label} · {tab + 1} / {TABS.length}</span>
