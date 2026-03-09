@@ -52,7 +52,7 @@ const IDEA_PRIORITIES = ["💡 Idea","⭐ High Priority","🔥 Hot Topic","📌 
 
 function blankProject(contentType = "long") {
   return {
-    id: Date.now().toString(),
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
     title: "Untitled Video",
     contentType,
     niche: "",
