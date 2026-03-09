@@ -1150,7 +1150,7 @@ function FinishTab({ project, update, presets }) {
 }
 
 /* ── Project Page ── */
-function ProjectPage({ project, onUpdate, onBack, presets }) {
+function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Filming", icon: "🎬" }, { label: "Finish", icon: "🚀" }];
@@ -1166,9 +1166,12 @@ function ProjectPage({ project, onUpdate, onBack, presets }) {
           <Badge stage={project.stage} sm />
           {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>📱 SHORT</span>}
         </div>
-        <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 10px", fontSize: 12, background: "#1a2234", color: "#ffffff", flexShrink: 0 }}>
-          {STAGES.map((s) => <option key={s}>{s}</option>)}
-        </select>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 10px", fontSize: 12, background: "#1a2234", color: "#ffffff" }}>
+            {STAGES.map((s) => <option key={s}>{s}</option>)}
+          </select>
+          <button onClick={() => { if (confirm("Delete this project?")) onDelete(); }} style={{ background: "none", border: "1px solid #7f1d1d", borderRadius: 8, padding: "5px 10px", color: "#f87171", fontSize: 13, cursor: "pointer" }}>🗑</button>
+        </div>
       </div>
 
       {isMobile ? (
@@ -1565,8 +1568,9 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
                 {day && <div style={{ fontSize: 12, fontWeight: today ? 700 : 400, color: today ? "#fff" : "#cbd5e1", background: today ? "#2563eb" : "transparent", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 2, flexShrink: 0 }}>{day}</div>}
                 {hits.map((p) => (
                   <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => open(p.id)} onContextMenu={(e) => { e.preventDefault(); setRs({ id: p.id, x: e.clientX, y: e.clientY }); }}
-                    style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", marginBottom: 1, maxWidth: "100%", display: "block" }}>
-                    {p.title}
+                    style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", marginBottom: 1, maxWidth: "100%", display: "flex", alignItems: "center", gap: 2 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
+                    <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.7, cursor: "pointer", fontSize: 10, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1581,6 +1585,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           <div style={{ position: "fixed", top: Math.min(rs.y, window.innerHeight - 100), left: Math.min(rs.x, window.innerWidth - 230), background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,.12)", zIndex: 999, minWidth: 200 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Reschedule</div>
             <input type="date" style={{ width: "100%", border: "1px solid #334155", borderRadius: 7, padding: "6px 10px", fontSize: 13, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", colorScheme: "dark" }} onChange={(e) => reschedule(rs.id, e.target.value)} />
+            <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== rs.id); setProjects(u); stor("set", "tubeflow-projects", u); setRs(null); } }} style={{ marginTop: 8, width: "100%", background: "none", border: "1px solid #7f1d1d", borderRadius: 7, padding: "6px 0", color: "#f87171", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🗑 Delete Project</button>
           </div>
         </>
       )}
@@ -2120,7 +2125,7 @@ export default function App() {
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Presets"  && <PresetsPage presets={presets} setPresets={setPresets} />}
         {page === "Settings" && <SettingsPage />}
-        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} presets={presets} />}
+        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); stor("set", "tubeflow-projects", u); return u; }); nav("Home"); }} presets={presets} />}
       </main>
     </div>
   );
