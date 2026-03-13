@@ -24,6 +24,27 @@ export async function saveUserKeys(uid, keys) {
   await setDoc(doc(db, "users", uid), keys, { merge: true });
 }
 
+export async function loadUserData(uid) {
+  const snap = await getDoc(doc(db, 'users', uid, 'appdata', 'main'));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function saveUserProjects(uid, projects) {
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { projects }, { merge: true });
+}
+
+export async function saveUserIdeas(uid, ideas) {
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { ideas }, { merge: true });
+}
+
+export async function saveUserPresets(uid, presets) {
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { presets }, { merge: true });
+}
+
+export async function saveAllUserData(uid, data) {
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), data, { merge: true });
+}
+
 const provider = new GoogleAuthProvider();
 
 export function signInWithGoogle() {

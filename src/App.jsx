@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser, loadUserKeys, saveUserKeys } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserKeys, saveUserKeys, loadUserData, saveUserProjects, saveUserIdeas, saveUserPresets, saveAllUserData } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 
 /* ── API key helpers (stored in localStorage) ── */
@@ -32,8 +32,19 @@ async function stor(op, key, val) {
     return null;
   }
 }
-async function savePresets(p) { await stor("set", "tubeflow-presets", p); }
-async function saveIdeas(ideas) { await stor("set", "tubeflow-ideas", ideas); }
+let _currentUid = null;
+async function saveProjectsData(p) {
+  await stor("set", "tubeflow-projects", p);
+  if (_currentUid) saveUserProjects(_currentUid, p).catch(() => {});
+}
+async function savePresets(p) {
+  await stor("set", "tubeflow-presets", p);
+  if (_currentUid) saveUserPresets(_currentUid, p).catch(() => {});
+}
+async function saveIdeas(ideas) {
+  await stor("set", "tubeflow-ideas", ideas);
+  if (_currentUid) saveUserIdeas(_currentUid, ideas).catch(() => {});
+}
 
 /* ── Constants ── */
 const STAGES = ["Research", "Thumbnail", "Script", "Filming", "Finishing", "Published"];
@@ -97,7 +108,7 @@ function blankIdea() {
 /* ── AI helper — calls Anthropic directly from browser ── */
 async function ai(system, user, maxTokens = 1500, signal) {
   const apiKey = getKey("anthropic-key");
-  if (!apiKey) return "⚠️ Add your Anthropic API key in Settings (🔑) to use AI features.";
+  if (!apiKey) return "⚠️ Add your Anthropic API key in Account (👤) to use AI features.";
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -120,7 +131,7 @@ async function ai(system, user, maxTokens = 1500, signal) {
     return d.content?.map((b) => b.text || "").join("") || "";
   } catch (e) {
     if (e.name === "AbortError") throw e;
-    return "⚠️ AI unavailable — check your API key in Settings.";
+    return "⚠️ AI unavailable — check your API key in Account (👤).";
   }
 }
 function pCtx(presets) {
@@ -208,7 +219,7 @@ const NAV_ITEMS = [
   { id: "Calendar", icon: "📅", label: "Calendar"   },
   { id: "Ideas",    icon: "💡", label: "Idea Vault" },
   { id: "Presets",  icon: "⚙️", label: "Presets"    },
-  { id: "Settings", icon: "🔑", label: "API Keys"   },
+  { id: "Settings", icon: "👤", label: "Account"    },
 ];
 function Sidebar({ page, setPage, projects, ideas, user }) {
   const isMobile = useIsMobile();
@@ -1343,7 +1354,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
     p.niche = idea.tags?.join(", ") || "";
     const updated = [p, ...projects];
     setProjects(updated);
-    stor("set", "tubeflow-projects", updated);
+    saveProjectsData(updated);
     deleteIdea(idea.id);
     setEditId(p.id);
     setPage("Project");
@@ -1497,7 +1508,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
     const p = blankProject(contentType);
     const u = [p, ...projects];
     setProjects(u);
-    stor("set", "tubeflow-projects", u);
+    saveProjectsData(u);
     setEditId(p.id);
     setPage("Project");
     setShowTypeModal(false);
@@ -1505,7 +1516,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
   function reschedule(id, date) {
     const u = projects.map((p) => (p.id === id ? { ...p, publishDate: date } : p));
     setProjects(u);
-    stor("set", "tubeflow-projects", u);
+    saveProjectsData(u);
     setRs(null);
   }
   function handleCalendarDrop(e, day) {
@@ -1570,7 +1581,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
                   <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => open(p.id)} onContextMenu={(e) => { e.preventDefault(); setRs({ id: p.id, x: e.clientX, y: e.clientY }); }}
                     style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", marginBottom: 1, maxWidth: "100%", display: "flex", alignItems: "center", gap: 2 }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
-                    <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.7, cursor: "pointer", fontSize: 10, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                    <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.7, cursor: "pointer", fontSize: 10, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1585,7 +1596,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           <div style={{ position: "fixed", top: Math.min(rs.y, window.innerHeight - 100), left: Math.min(rs.x, window.innerWidth - 230), background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,.12)", zIndex: 999, minWidth: 200 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Reschedule</div>
             <input type="date" style={{ width: "100%", border: "1px solid #334155", borderRadius: 7, padding: "6px 10px", fontSize: 13, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", colorScheme: "dark" }} onChange={(e) => reschedule(rs.id, e.target.value)} />
-            <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== rs.id); setProjects(u); stor("set", "tubeflow-projects", u); setRs(null); } }} style={{ marginTop: 8, width: "100%", background: "none", border: "1px solid #7f1d1d", borderRadius: 7, padding: "6px 0", color: "#f87171", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🗑 Delete Project</button>
+            <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== rs.id); setProjects(u); saveProjectsData(u); setRs(null); } }} style={{ marginTop: 8, width: "100%", background: "none", border: "1px solid #7f1d1d", borderRadius: 7, padding: "6px 0", color: "#f87171", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🗑 Delete Project</button>
           </div>
         </>
       )}
@@ -1593,7 +1604,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: "#cbd5e1" }}>⏳ In Progress ({inProg.length})</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); }} />)}
+            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} />)}
           </div>
         </div>
       )}
@@ -1601,7 +1612,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
         <div>
           <h2 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: "#cbd5e1" }}>✅ Published ({pub.length})</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {pub.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); }} />)}
+            {pub.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} />)}
           </div>
         </div>
       )}
@@ -1662,7 +1673,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
     if (newProjects.length > 0) {
       const updated = [...projects, ...newProjects];
       setProjects(updated);
-      stor("set", "tubeflow-projects", updated);
+      saveProjectsData(updated);
     }
     setFillCount(newProjects.length);
     setTimeout(() => setFillCount(null), 3000);
@@ -1730,7 +1741,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   function reschedule(id, date) {
     const u = projects.map((p) => (p.id === id ? { ...p, publishDate: date } : p));
     setProjects(u);
-    stor("set", "tubeflow-projects", u);
+    saveProjectsData(u);
   }
   function handleCalendarDrop(e, day) {
     e.preventDefault();
@@ -1743,7 +1754,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
     const p = blankProject(contentType);
     const u = [p, ...projects];
     setProjects(u);
-    stor("set", "tubeflow-projects", u);
+    saveProjectsData(u);
     setEditId(p.id);
     setPage("Project");
     setShowTypeModal(false);
@@ -1785,7 +1796,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                       onClick={() => { setEditId(p.id); setPage("Project"); }}
                       style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22`, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, boxSizing: "border-box" }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
-                      <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.6, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                      <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.6, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
                   ))}
                 </div>
@@ -1804,7 +1815,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#ffffff", lineHeight: 1.4 }}>{p.title}</div>
                 <div style={{ fontSize: 10, color: "#64748b" }}>{parseLocalDate(p.publishDate)?.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
                 </div>
-                <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); stor("set", "tubeflow-projects", u); } }} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
+                <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
               </div>
             ))}
           </div>
@@ -1944,13 +1955,19 @@ function PresetsPage({ presets, setPresets }) {
   );
 }
 
-/* ── Settings Page ── */
-function SettingsPage() {
+/* ── Account Page ── */
+function SettingsPage({ user }) {
   const isMobile = useIsMobile();
   const [anthropic, setAnthropic] = useState(getKey("anthropic-key"));
   const [youtube, setYoutube] = useState(getKey("youtube-key"));
   const [saved, setSaved] = useState(false);
-  const currentUser = auth.currentUser;
+
+  // Re-read keys from localStorage after cloud load resolves on sign-in
+  useEffect(() => {
+    setAnthropic(getKey("anthropic-key"));
+    setYoutube(getKey("youtube-key"));
+  }, [user?.uid]);
+
   function save() {
     setKey("anthropic-key", anthropic.trim());
     setKey("youtube-key", youtube.trim());
@@ -1963,46 +1980,64 @@ function SettingsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
+
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
-      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 6px", color: "#ffffff" }}>🔑 API Keys</h1>
-      <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 28px" }}>Keys are saved in your browser only — never sent to any server.</p>
-      <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>Anthropic API Key <span style={{ color: "#f87171", fontSize: 11 }}>required</span></div>
-          <input
-            type="password"
-            value={anthropic}
-            onChange={(e) => setAnthropic(e.target.value)}
-            placeholder="sk-ant-api03-..."
-            style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
-          />
-          <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Get yours at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>console.anthropic.com</a></p>
-        </div>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>YouTube Data API Key <span style={{ color: "#64748b", fontSize: 11 }}>optional</span></div>
-          <input
-            type="password"
-            value={youtube}
-            onChange={(e) => setYoutube(e.target.value)}
-            placeholder="AIza..."
-            style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
-          />
-          <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Without this, YouTube search uses AI simulation instead of real results. Get one free at <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>Google Cloud Console</a>.</p>
-        </div>
-        <div>
-          <Btn onClick={save}>{saved ? "✓ Saved!" : "Save Keys"}</Btn>
-        </div>
-      </div>
-      {currentUser && (
-        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "16px 20px", marginTop: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#ffffff" }}>{currentUser.displayName || "Creator"}</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{currentUser.email}</div>
+      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 28px", color: "#ffffff" }}>👤 Account</h1>
+
+      {/* Profile card */}
+      {user && (
+        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            {user.photoURL
+              ? <img src={user.photoURL} alt="" style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0 }} />
+              : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg,#2563eb,#3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{(user.displayName || user.email || "?")[0].toUpperCase()}</div>
+            }
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff" }}>{user.displayName || "Creator"}</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{user.email}</div>
+              <div style={{ fontSize: 11, color: "#22c55e", marginTop: 5, display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
+                Synced across devices
+              </div>
+            </div>
+            <Btn sm color="gray" onClick={signOutUser}>Sign out</Btn>
           </div>
-          <Btn sm color="gray" onClick={signOutUser}>Sign out</Btn>
         </div>
       )}
+
+      {/* API Keys */}
+      <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24 }}>
+        <h3 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, color: "#ffffff", margin: "0 0 4px" }}>🔑 API Keys</h3>
+        <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 20px" }}>Keys are saved to your account and synced across all your devices.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>Anthropic API Key <span style={{ color: "#f87171", fontSize: 11 }}>required</span></div>
+            <input
+              type="password"
+              value={anthropic}
+              onChange={(e) => setAnthropic(e.target.value)}
+              placeholder="sk-ant-api03-..."
+              style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
+            />
+            <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Get yours at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>console.anthropic.com</a></p>
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>YouTube Data API Key <span style={{ color: "#64748b", fontSize: 11 }}>optional</span></div>
+            <input
+              type="password"
+              value={youtube}
+              onChange={(e) => setYoutube(e.target.value)}
+              placeholder="AIza..."
+              style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
+            />
+            <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Without this, YouTube search uses AI simulation instead of real results. Get one free at <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>Google Cloud Console</a>.</p>
+          </div>
+          <div>
+            <Btn onClick={save}>{saved ? "✓ Saved!" : "Save Keys"}</Btn>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2070,11 +2105,45 @@ export default function App() {
       setUser(u);
       setAuthReady(true);
       if (u) {
+        _currentUid = u.uid;
+        // Load API keys (existing behaviour)
         try {
           const keys = await loadUserKeys(u.uid);
           if (keys.anthropicKey) setKey("anthropic-key", keys.anthropicKey);
           if (keys.youtubeKey) setKey("youtube-key", keys.youtubeKey);
-        } catch { /* silent — localStorage keys still work */ }
+        } catch {}
+        // Sync cloud data
+        try {
+          const cloudData = await loadUserData(u.uid);
+          if (cloudData) {
+            // Cloud exists — use it as source of truth
+            const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
+            const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
+            const pr = Array.isArray(cloudData.presets)  ? cloudData.presets  : [];
+            setProjects(p);
+            setIdeas(id);
+            setPresets(pr);
+            await Promise.all([
+              stor("set", "tubeflow-projects", p),
+              stor("set", "tubeflow-ideas",    id),
+              stor("set", "tubeflow-presets",  pr),
+            ]);
+          } else {
+            // First-time cloud sync — upload current local data
+            const [localP, localPr, localId] = await Promise.all([
+              stor("get", "tubeflow-projects"),
+              stor("get", "tubeflow-presets"),
+              stor("get", "tubeflow-ideas"),
+            ]);
+            await saveAllUserData(u.uid, {
+              projects: Array.isArray(localP)  ? localP  : [],
+              ideas:    Array.isArray(localId) ? localId : [],
+              presets:  Array.isArray(localPr) ? localPr : [],
+            });
+          }
+        } catch {}
+      } else {
+        _currentUid = null;
       }
     });
     return unsub;
@@ -2096,7 +2165,7 @@ export default function App() {
   function updateProject(updated) {
     setProjects((prev) => {
       const next = prev.map((p) => (p.id === updated.id ? updated : p));
-      stor("set", "tubeflow-projects", next);
+      saveProjectsData(next);
       return next;
     });
   }
@@ -2124,8 +2193,8 @@ export default function App() {
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Presets"  && <PresetsPage presets={presets} setPresets={setPresets} />}
-        {page === "Settings" && <SettingsPage />}
-        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); stor("set", "tubeflow-projects", u); return u; }); nav("Home"); }} presets={presets} />}
+        {page === "Settings" && <SettingsPage user={user} />}
+        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); saveProjectsData(u); return u; }); nav("Home"); }} presets={presets} />}
       </main>
     </div>
   );
