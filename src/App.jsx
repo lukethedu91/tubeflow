@@ -1272,7 +1272,7 @@ function NewProjectModal({ onSelect, onClose }) {
 }
 
 /* ── Project Card ── */
-function PCard({ project, onClick, onDelete }) {
+function PCard({ project, onClick, onDelete, onMoveToIdeas }) {
   const [delConfirm, setDelConfirm] = useState(false);
   return (
     <div onClick={onClick} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", project.id); e.dataTransfer.effectAllowed = "move"; }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: 16, cursor: "pointer", transition: "box-shadow .15s" }} onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 14px rgba(109,40,217,.12)")} onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}>
@@ -1282,7 +1282,10 @@ function PCard({ project, onClick, onDelete }) {
           <Badge stage={project.stage} sm />
           {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>📱 SHORT</span>}
         </div>
-        <button onClick={(e) => { e.stopPropagation(); setDelConfirm(true); }} aria-label="Delete project" style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {onMoveToIdeas && <button onClick={(e) => { e.stopPropagation(); onMoveToIdeas(); }} aria-label="Move to Idea Vault" title="Move to Idea Vault" style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 14, padding: 0 }}>💡</button>}
+          <button onClick={(e) => { e.stopPropagation(); setDelConfirm(true); }} aria-label="Delete project" style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
+        </div>
       </div>
       {project.thumbnailImageUrl && <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 7, marginBottom: 7, overflow: "hidden" }}><img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0f172a" }} /></div>}
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 2px", color: "#ffffff", lineHeight: 1.4 }}>{project.title}</h3>
@@ -1512,7 +1515,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
 }
 
 /* ── Home Page ── */
-function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
+function HomePage({ projects, setProjects, setPage, setEditId, ideas, setIdeas }) {
   const [cm, setCm] = useState(new Date().getMonth());
   const [cy, setCy] = useState(new Date().getFullYear());
   const [rs, setRs] = useState(null);
@@ -1632,7 +1635,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: "#cbd5e1" }}>⏳ In Progress ({inProg.length})</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} />)}
+            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} onMoveToIdeas={() => { const idea = { ...blankIdea(), title: p.title, notes: p.niche || "", tags: (p.keywords || []).slice(0, 3) }; const updIdeas = [idea, ...ideas]; setIdeas(updIdeas); saveIdeas(updIdeas); const updProjects = projects.filter((x) => x.id !== p.id); setProjects(updProjects); saveProjectsData(updProjects); }} />)}
           </div>
         </div>
       )}
@@ -2169,7 +2172,7 @@ export default function App() {
     <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a" }}>
       <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} />
       <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh" }}>
-        {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} />}
+        {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} setIdeas={setIdeas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Presets"  && <PresetsPage presets={presets} setPresets={setPresets} />}
