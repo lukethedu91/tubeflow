@@ -1,11 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser, loadUserKeys, saveUserKeys, loadUserData, saveUserProjects, saveUserIdeas, saveUserPresets, saveAllUserData } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveUserPresets, saveAllUserData } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
+import { durationSecs, fmtViews, fmtDuration, timeAgo } from "./utils.js";
 
-/* ── API key helpers (stored in localStorage) ── */
-function getKey(name) { return localStorage.getItem(`tubeflow-${name}`) || ""; }
-function setKey(name, val) { val ? localStorage.setItem(`tubeflow-${name}`, val) : localStorage.removeItem(`tubeflow-${name}`); }
+/* ── Storage keys ── */
+const SK = {
+  PROJECTS:    "tubeflow-projects",
+  PROJECTS_TS: "tubeflow-projects-ts",
+  PRESETS:     "tubeflow-presets",
+  IDEAS:       "tubeflow-ideas",
+  SCHEDULE:    "tubeflow-schedule",
+};
+
+
+/* ── Prompt sanitizer — trims and caps user input before AI interpolation ── */
+function sp(s, max = 300) { return String(s || "").trim().slice(0, max); }
 
 /* ── Mobile breakpoint hook ── */
 function useIsMobile() {
@@ -34,16 +44,18 @@ async function stor(op, key, val) {
 }
 let _currentUid = null;
 async function saveProjectsData(p) {
-  await stor("set", "tubeflow-projects", p);
-  if (_currentUid) saveUserProjects(_currentUid, p).catch(() => {});
+  const ts = Date.now();
+  await stor("set", SK.PROJECTS, p);
+  await stor("set", SK.PROJECTS_TS, ts);
+  if (_currentUid) saveUserProjects(_currentUid, p).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
 async function savePresets(p) {
-  await stor("set", "tubeflow-presets", p);
-  if (_currentUid) saveUserPresets(_currentUid, p).catch(() => {});
+  await stor("set", SK.PRESETS, p);
+  if (_currentUid) saveUserPresets(_currentUid, p).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
 async function saveIdeas(ideas) {
-  await stor("set", "tubeflow-ideas", ideas);
-  if (_currentUid) saveUserIdeas(_currentUid, ideas).catch(() => {});
+  await stor("set", SK.IDEAS, ideas);
+  if (_currentUid) saveUserIdeas(_currentUid, ideas).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
 
 /* ── Constants ── */
@@ -63,12 +75,12 @@ const IDEA_PRIORITIES = ["💡 Idea","⭐ High Priority","🔥 Hot Topic","📌 
 
 function blankProject(contentType = "long") {
   return {
-    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    id: crypto.randomUUID(),
     title: "Untitled Video",
     contentType,
     niche: "",
     keywords: [],
-    competitors: [{ title: "", url: "", views: "", why: "" }],
+    competitors: [{ id: crypto.randomUUID(), title: "", url: "", views: "", why: "" }],
     thumbnailConcept: "",
     thumbnailHook: "",
     thumbnailImageUrl: "",
@@ -96,7 +108,7 @@ function blankProject(contentType = "long") {
 
 function blankIdea() {
   return {
-    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    id: crypto.randomUUID(),
     title: "",
     notes: "",
     priority: "💡 Idea",
@@ -105,19 +117,12 @@ function blankIdea() {
   };
 }
 
-/* ── AI helper — calls Anthropic directly from browser ── */
+/* ── AI helper — routes through server proxy ── */
 async function ai(system, user, maxTokens = 1500, signal) {
-  const apiKey = getKey("anthropic-key");
-  if (!apiKey) return "⚠️ Add your Anthropic API key in Account (👤) to use AI features.";
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await fetch("/api/ai", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: maxTokens,
@@ -127,11 +132,12 @@ async function ai(system, user, maxTokens = 1500, signal) {
       signal,
     });
     const d = await res.json();
+    if (!res.ok) return `⚠️ AI unavailable — ${d.error || "please try again."}`;
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
     return d.content?.map((b) => b.text || "").join("") || "";
   } catch (e) {
     if (e.name === "AbortError") throw e;
-    return "⚠️ AI unavailable — check your API key in Account (👤).";
+    return "⚠️ AI unavailable — check your connection and try again.";
   }
 }
 function pCtx(presets) {
@@ -161,10 +167,31 @@ function Badge({ stage, sm }) {
 }
 
 function Btn({ children, onClick, disabled, color = "purple", sm, style = {} }) {
+  const [hover, setHover] = useState(false);
+  const [active, setActive] = useState(false);
   const bg = color === "green" ? "linear-gradient(135deg,#059669,#22c55e)" : color === "gray" ? "#1e293b" : color === "red" ? "linear-gradient(135deg,#dc2626,#ef4444)" : "linear-gradient(135deg,#2563eb,#3b82f6)";
   const clr = color === "gray" ? "#cbd5e1" : "#fff";
   return (
-    <button onClick={onClick} disabled={disabled} style={{ background: disabled ? "#334155" : bg, color: disabled ? "#64748b" : clr, border: "none", borderRadius: 8, padding: sm ? "6px 12px" : "9px 18px", cursor: disabled ? "not-allowed" : "pointer", fontWeight: 600, fontSize: sm ? 12 : 13, display: "inline-flex", alignItems: "center", gap: 6, ...style }}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setActive(false); }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      style={{
+        background: disabled ? "#334155" : bg,
+        color: disabled ? "#64748b" : clr,
+        border: "none", borderRadius: 8,
+        padding: sm ? "6px 12px" : "9px 18px",
+        cursor: disabled ? "not-allowed" : "pointer",
+        fontWeight: 600, fontSize: sm ? 12 : 13,
+        display: "inline-flex", alignItems: "center", gap: 6,
+        opacity: !disabled && hover ? 0.82 : 1,
+        transform: !disabled && active ? "scale(0.96)" : "scale(1)",
+        transition: "opacity 0.12s, transform 0.08s",
+        ...style
+      }}>
       {children}
     </button>
   );
@@ -192,6 +219,19 @@ function Card({ title, icon, children, action }) {
 }
 function Fld({ label, children, mt }) {
   return <div style={{ marginTop: mt || 0 }}>{label && <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>{label}</div>}{children}</div>;
+}
+function ConfirmModal({ message, onConfirm, onCancel }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onCancel}>
+      <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: "24px 28px", maxWidth: 360, width: "100%" }} onClick={(e) => e.stopPropagation()}>
+        <p style={{ color: "#e2e8f0", fontSize: 15, margin: "0 0 20px", lineHeight: 1.5 }}>{message}</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <Btn color="gray" onClick={onCancel}>Cancel</Btn>
+          <Btn color="red" onClick={onConfirm}>Delete</Btn>
+        </div>
+      </div>
+    </div>
+  );
 }
 function AIOut({ k, loading, output, onRun, label, onUse, onStop }) {
   return (
@@ -299,47 +339,20 @@ function KwInput({ keywords, onChange }) {
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <TInput value={val} onChange={setVal} placeholder="Add keyword + Enter" style={{ flex: 1 }} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
-        <button onClick={add} style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, width: 34, cursor: "pointer", fontSize: 18 }}>+</button>
+        <button onClick={add} aria-label="Add keyword" style={{ background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, width: 34, cursor: "pointer", fontSize: 18 }}>+</button>
       </div>
       {keywords.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {keywords.map((kw, i) => (
             <span key={i} style={{ background: "#1e3a5f", color: "#93c5fd", padding: "4px 10px", borderRadius: 20, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
               {kw}
-              <button onClick={() => onChange(keywords.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 15 }}>×</button>
+              <button onClick={() => onChange(keywords.filter((_, j) => j !== i))} aria-label={`Remove keyword ${kw}`} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 15 }}>×</button>
             </span>
           ))}
         </div>
       )}
     </div>
   );
-}
-
-/* ── YouTube helpers ── */
-function durationSecs(iso) {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return 0;
-  return +(m[1] || 0) * 3600 + +(m[2] || 0) * 60 + +(m[3] || 0);
-}
-function fmtViews(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M views";
-  if (n >= 1_000) return Math.round(n / 1_000) + "K views";
-  return n + " views";
-}
-function fmtDuration(iso) {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return "";
-  const h = +(m[1] || 0), min = +(m[2] || 0), s = +(m[3] || 0);
-  if (h) return `${h}:${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${min}:${String(s).padStart(2, "0")}`;
-}
-function timeAgo(str) {
-  const d = Math.floor((Date.now() - new Date(str)) / 86400000);
-  if (d < 1) return "Today";
-  if (d < 7) return `${d}d ago`;
-  if (d < 30) return `${Math.floor(d / 7)}w ago`;
-  if (d < 365) return `${Math.floor(d / 30)}mo ago`;
-  return `${Math.floor(d / 365)}y ago`;
 }
 
 /* ── YouTube Search ── */
@@ -356,55 +369,34 @@ function YTSearch({ onAdd }) {
   const [res, setRes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [searchErr, setSearchErr] = useState("");
   const [filters, setFilters] = useState({ type: "any", sort: "relevance", duration: "any", date: "any" });
   const colors = ["#1e3a5f","#2d1b69","#0f4c35","#5c1a1a","#1a3d5c","#3d1a5c","#1a4d2e","#4d1a1a","#2d3748","#1a365d","#276749","#702459"];
   function bg(t) { let h = 0; for (let i = 0; i < (t||"").length; i++) h = (h + t.charCodeAt(i)) % colors.length; return colors[h]; }
 
   async function searchWith(f = filters) {
     if (!q.trim()) return;
-    setLoading(true); setDone(true);
+    setLoading(true); setDone(true); setSearchErr("");
     try {
-      const ytKey = getKey("youtube-key");
-      if (ytKey) {
-        const { type, sort, duration, date } = f;
-        let searchQuery = q, eventTypeParam = "", effectiveDuration = duration;
-        if (type === "shorts") { searchQuery = q + " #shorts"; effectiveDuration = "short"; }
-        if (type === "live") eventTypeParam = "&eventType=live";
-        if (type === "upcoming") eventTypeParam = "&eventType=upcoming";
-        let publishedAfter = "";
-        if (date !== "any") {
-          const now = new Date();
-          if (date === "today") now.setHours(0, 0, 0, 0);
-          if (date === "week") now.setDate(now.getDate() - 7);
-          if (date === "month") now.setMonth(now.getMonth() - 1);
-          if (date === "year") now.setFullYear(now.getFullYear() - 1);
-          publishedAfter = `&publishedAfter=${now.toISOString()}`;
-        }
-        const durationParam = effectiveDuration !== "any" ? `&videoDuration=${effectiveDuration}` : "";
-        const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&maxResults=12&order=${sort}${durationParam}${eventTypeParam}${publishedAfter}&key=${ytKey}`);
-        const searchData = await searchRes.json();
-        if (!searchData.error && searchData.items?.length) {
-          const ids = searchData.items.map((i) => i.id.videoId).join(",");
-          const statsRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${ids}&key=${ytKey}`);
-          const statsData = await statsRes.json();
-          const statsMap = Object.fromEntries((statsData.items || []).map((i) => [i.id, i]));
-          const results = searchData.items.map((item) => {
-            const id = item.id.videoId;
-            const stats = statsMap[id];
-            const viewCount = parseInt(stats?.statistics?.viewCount || 0);
-            const likeCount = parseInt(stats?.statistics?.likeCount || 0);
-            const publishedAt = item.snippet.publishedAt;
-            const rawDuration = stats?.contentDetails?.duration || "";
-            return { title: item.snippet.title, channel: item.snippet.channelTitle, views: fmtViews(viewCount), viewCount, likeCount, duration: fmtDuration(rawDuration), durationSecs: durationSecs(rawDuration), publishedAt, publishedAgo: timeAgo(publishedAt), thumbnail: item.snippet.thumbnails?.medium?.url || "", url: `https://www.youtube.com/watch?v=${id}` };
-          }).filter((v) => { if (type === "video") return v.durationSecs > 62; if (type === "shorts") return v.durationSecs <= 62; return true; });
-          setRes(results); setLoading(false); return;
-        }
+      // Try server proxy (uses server-side YouTube API key)
+      const { type, sort, duration, date } = f;
+      const params = new URLSearchParams({ q: q.trim(), sort, duration, date, type });
+      const r = await fetch(`/api/youtube?${params}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data)) { setRes(data); setLoading(false); return; }
+        if (data.error) setSearchErr(data.error);
       }
-      // Fallback: AI-simulated results if no YouTube key
-      const raw = await ai("Return ONLY a valid JSON array, no markdown, no backticks.", `YouTube search: "${q}". Return JSON array of 12 objects: title, channel, views, duration, publishedAgo, thumbnail (visual desc), whyItWorks (1 sentence), url (youtube.com/watch?v=XXX). Real trends only.`, 2000);
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      setRes(Array.isArray(parsed) ? parsed : []);
-    } catch { setRes([]); }
+      // Fallback: AI-simulated results if YouTube key not configured
+      const raw = await ai("Return ONLY a valid JSON array, no markdown, no backticks.", `YouTube search: "${sp(q, 200)}". Return JSON array of 12 objects: title, channel, views, duration, publishedAgo, thumbnail (visual desc), whyItWorks (1 sentence), url (youtube.com/watch?v=XXX). Real trends only.`, 2000);
+      try {
+        const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+        setRes(Array.isArray(parsed) ? parsed : []);
+      } catch {
+        setRes([]);
+        if (!searchErr) setSearchErr("AI returned unexpected data — try again.");
+      }
+    } catch (e) { setRes([]); if (e.name !== "AbortError") setSearchErr("Search failed — check your connection and try again."); }
     setLoading(false);
   }
 
@@ -441,7 +433,8 @@ function YTSearch({ onAdd }) {
         ))}
       </div>
 
-      {done && !loading && res.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>No results — try a different query or filters.</p>}
+      {searchErr && <p style={{ color: "#f87171", fontSize: 13, margin: "8px 0" }}>⚠ {searchErr}</p>}
+      {done && !loading && !searchErr && res.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>No results — try a different query or filters.</p>}
       {res.length > 0 && (
         <div style={{ maxHeight: 560, overflowY: "auto" }}>
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
@@ -515,9 +508,9 @@ function ResearchTab({ project, update, presets }) {
               `You are a YouTube SEO and content strategy expert. Return ONLY a valid JSON object, no markdown, no explanation.`,
               `Analyze this YouTube topic. Return exactly this JSON structure:
 {"angles":[{"title":"video title idea","hook":"one-sentence hook for the video","why":"why this angle performs well"}],"keywords":["kw1","kw2","kw3","kw4","kw5"],"formats":["format1","format2","format3"],"tips":["tip1","tip2","tip3"]}
-Give 3 angles, 5 keywords (avoid these already used: ${project.keywords.join(", ") || "none"}), 3 video formats, 3 actionable tips.
-Title: ${project.title}
-Niche: ${project.niche}`
+Give 3 angles, 5 keywords (avoid these already used: ${project.keywords.map((k) => sp(k)).join(", ") || "none"}), 3 video formats, 3 actionable tips.
+Title: ${sp(project.title)}
+Niche: ${sp(project.niche)}`
             )}>{L["analyze"] ? "✦ Analyzing…" : "✦ Analyze"}</Btn>
             {L["analyze"] && <Btn sm color="gray" onClick={() => cancel("analyze")}>■ Stop</Btn>}
           </div>
@@ -544,21 +537,39 @@ Niche: ${project.niche}`
       </Card>
       <Card title="Keywords" icon="🏷️">
         <KwInput keywords={project.keywords} onChange={(v) => update("keywords", v)} />
-        <AIOut k="kw" label="Suggest Keywords" loading={L} output={O} onRun={() => run("kw", "YouTube SEO expert. Return only comma-separated keywords.", `10 keywords for: ${project.title} / ${project.niche}`)} onUse={(t) => update("keywords", [...project.keywords, ...t.split(",").map((k) => k.trim()).filter(Boolean)])} onStop={() => cancel("kw")} />
+        <AIOut k="kw" label="Suggest Keywords" loading={L} output={O} onRun={() => run("kw", "YouTube SEO expert. Return only comma-separated keywords.", `10 keywords for: ${sp(project.title)} / ${sp(project.niche)}`)} onUse={(t) => update("keywords", [...project.keywords, ...t.split(",").map((k) => k.trim()).filter(Boolean)])} onStop={() => cancel("kw")} />
       </Card>
       <Card title="Competitor Videos" icon="👁️">
         {project.competitors.map((c, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 8, marginBottom: 10, paddingBottom: 10, borderBottom: i < project.competitors.length - 1 ? "1px solid #1e293b" : "none" }}>
-            <TInput value={c.title} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], title: v }; update("competitors", a); }} placeholder="Video title" />
-            <TInput value={c.url} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], url: v }; update("competitors", a); }} placeholder="YouTube URL" />
-            <TInput value={c.views} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], views: v }; update("competitors", a); }} placeholder="Views" />
-            <TInput value={c.why} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], why: v }; update("competitors", a); }} placeholder="Why it worked?" />
+          <div key={c.id || i} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: i < project.competitors.length - 1 ? "1px solid #1e293b" : "none" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              {c.thumbnail ? (
+                <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
+                  <img src={c.thumbnail} alt="" style={{ width: 140, aspectRatio: "16/9", borderRadius: 6, objectFit: "cover", border: "1px solid #334155", display: "block" }} />
+                </a>
+              ) : (
+                <div style={{ width: 140, aspectRatio: "16/9", borderRadius: 6, background: "#1e293b", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #334155" }}>
+                  <span style={{ fontSize: 20 }}>🎬</span>
+                </div>
+              )}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                <TInput value={c.title} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], title: v }; update("competitors", a); }} placeholder="Video title" />
+                <TInput value={c.url} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], url: v }; update("competitors", a); }} placeholder="YouTube URL" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  <TInput value={c.views} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], views: v }; update("competitors", a); }} placeholder="Views" />
+                  <TInput value={c.why} onChange={(v) => { const a = [...project.competitors]; a[i] = { ...a[i], why: v }; update("competitors", a); }} placeholder="Why it worked?" />
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button onClick={() => { const a = [...project.competitors]; a.splice(i, 1); update("competitors", a); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 12, padding: "2px 6px" }}>✕ Remove</button>
+                </div>
+              </div>
+            </div>
           </div>
         ))}
-        <button onClick={() => update("competitors", [...project.competitors, { title: "", url: "", views: "", why: "" }])} style={{ background: "none", border: "1px dashed #64748b", borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: "#94a3b8", fontSize: 13, width: "100%" }}>+ Add Manually</button>
+        <button onClick={() => update("competitors", [...project.competitors, { id: crypto.randomUUID(), title: "", url: "", views: "", why: "", thumbnail: "" }])} style={{ background: "none", border: "1px dashed #64748b", borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: "#94a3b8", fontSize: 13, width: "100%" }}>+ Add Manually</button>
       </Card>
       <Card title="YouTube Search" icon="🔍" action={<span style={{ fontSize: 11, color: "#64748b" }}>AI-powered</span>}>
-        <YTSearch onAdd={(v) => update("competitors", [...project.competitors, { title: v.title, url: v.url, views: v.views, why: v.whyItWorks || "" }])} />
+        <YTSearch onAdd={(v) => update("competitors", [...project.competitors, { id: crypto.randomUUID(), title: v.title, url: v.url, views: v.views, why: v.whyItWorks || "", thumbnail: v.thumbnail || "" }])} />
       </Card>
     </div>
   );
@@ -568,10 +579,6 @@ Niche: ${project.niche}`
 function ThumbnailTab({ project, update, presets }) {
   const [L, setL] = useState({});
   const [O, setO] = useState({});
-  const [imgPrompt, setImgPrompt] = useState("");
-  const [genImgUrl, setGenImgUrl] = useState("");
-  const [imgLoading, setImgLoading] = useState(false);
-  const [imgError, setImgError] = useState("");
   const fileRef = useRef();
   const abortRef = useRef(null);
   function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
@@ -583,14 +590,8 @@ function ThumbnailTab({ project, update, presets }) {
     catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
     setL((l) => ({ ...l, [k]: false }));
   }
-  function generateImage() {
-    if (!imgPrompt.trim()) return;
-    setImgLoading(true);
-    setImgError("");
-    const seed = Math.floor(Math.random() * 999999);
-    setGenImgUrl(`https://image.pollinations.ai/prompt/${encodeURIComponent(imgPrompt)}?width=1280&height=720&nologo=true&seed=${seed}`);
-  }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
+  const competitorThumbs = (project.competitors || []).filter((c) => c.thumbnail);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Your Thumbnail" icon="🖼️">
@@ -611,41 +612,26 @@ function ThumbnailTab({ project, update, presets }) {
         )}
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={upload} />
       </Card>
-      <Card title="AI Image Generator" icon="🎨">
-        <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 12px" }}>Describe a thumbnail idea and generate a visual concept to inspire your design.</p>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <TInput value={imgPrompt} onChange={setImgPrompt} placeholder="e.g., Shocked hiker on mountain trail, dramatic sunset, bold text overlay" onKeyDown={(e) => e.key === "Enter" && generateImage()} />
-          <Btn sm onClick={generateImage} disabled={imgLoading}>{imgLoading ? "Generating…" : "Generate"}</Btn>
-        </div>
-        {imgError && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 8 }}>⚠️ {imgError}</div>}
-        {genImgUrl && (
-          <div>
-            {imgLoading && <div style={{ textAlign: "center", padding: "28px 0", color: "#64748b", fontSize: 13 }}>⏳ Generating… can take 15–30 seconds</div>}
-            {/* Image is always mounted once genImgUrl is set so onLoad/onError can fire */}
-            <img
-              src={genImgUrl}
-              alt="Generated thumbnail concept"
-              style={{ width: "100%", borderRadius: 10, border: "1px solid #334155", marginBottom: 8, display: imgLoading ? "none" : "block" }}
-              onLoad={() => setImgLoading(false)}
-              onError={() => { setImgLoading(false); setImgError("Image failed to load — try a different prompt"); setGenImgUrl(""); }}
-            />
-            {!imgLoading && (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Btn sm onClick={generateImage}>Regenerate</Btn>
-                <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", genImgUrl)}>Use as thumbnail</Btn>
-                <Btn sm color="gray" onClick={() => { setGenImgUrl(""); setImgPrompt(""); }}>🗑 Discard</Btn>
-              </div>
-            )}
+      {competitorThumbs.length > 0 && (
+        <Card title="Competitor Thumbnails" icon="👁️">
+          <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 12px" }}>Use these as inspiration for your own thumbnail design.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+            {competitorThumbs.map((c, i) => (
+              <a key={i} href={c.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", textDecoration: "none" }}>
+                <img src={c.thumbnail} alt={c.title} style={{ width: "100%", aspectRatio: "16/9", borderRadius: 8, objectFit: "cover", border: "1px solid #334155", display: "block" }} />
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{c.title}</div>
+              </a>
+            ))}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
       <Card title="Concept Planning" icon="💡">
         <Fld label="Concept Description"><TArea value={project.thumbnailConcept} onChange={(v) => update("thumbnailConcept", v)} rows={3} placeholder="Describe your thumbnail idea…" /></Fld>
-        <AIOut k="concept" label="Generate Concepts" loading={L} output={O} onRun={() => run("concept", "YouTube thumbnail design expert. Understand click psychology.", `3 thumbnail concepts for:\nTitle: ${project.title}\nNiche: ${project.niche}`)} onUse={(t) => update("thumbnailConcept", t)} onStop={() => cancel("concept")} />
+        <AIOut k="concept" label="Generate Concepts" loading={L} output={O} onRun={() => run("concept", "YouTube thumbnail design expert. Understand click psychology.", `3 thumbnail concepts for:\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}`)} onUse={(t) => update("thumbnailConcept", t)} onStop={() => cancel("concept")} />
       </Card>
       <Card title="Text Hook / Overlay" icon="💬">
         <Fld label="Hook Text"><TInput value={project.thumbnailHook} onChange={(v) => update("thumbnailHook", v)} placeholder="e.g., 'I WAS WRONG', 'Never Do This'" /></Fld>
-        <AIOut k="hooks" label="Generate Hooks" loading={L} output={O} onRun={() => run("hooks", "YouTube CTR expert.", `5 thumbnail text hooks (1-5 words) for:\nTitle: ${project.title}`)} onUse={(t) => update("thumbnailHook", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("hooks")} />
+        <AIOut k="hooks" label="Generate Hooks" loading={L} output={O} onRun={() => run("hooks", "YouTube CTR expert.", `5 thumbnail text hooks (1-5 words) for:\nTitle: ${sp(project.title)}`)} onUse={(t) => update("thumbnailHook", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("hooks")} />
       </Card>
     </div>
   );
@@ -659,7 +645,7 @@ function parseSectionsFromAI(text) {
     if (m) {
       const arr = JSON.parse(m[0]);
       if (Array.isArray(arr) && arr.length) {
-        return arr.map((s) => ({ id: Math.random().toString(36).slice(2), name: s.name || 'Section', duration: s.duration || '', notes: s.notes || '' }));
+        return arr.map((s) => ({ id: crypto.randomUUID(), name: s.name || 'Section', duration: s.duration || '', notes: s.notes || '' }));
       }
     }
   } catch { /* fall through */ }
@@ -670,7 +656,7 @@ function parseSectionsFromAI(text) {
   const flush = () => { if (cur) { sections.push({ ...cur, notes: buf.join('\n').trim() }); buf.length = 0; } };
   for (const line of text.split('\n')) {
     const hm = line.match(/^#{1,3}\s+(.+?)\s*[\(\-–]\s*([^)\n]+?)\)?\s*$/);
-    if (hm) { flush(); cur = { id: Math.random().toString(36).slice(2), name: hm[1].trim(), duration: hm[2].trim() }; continue; }
+    if (hm) { flush(); cur = { id: crypto.randomUUID(), name: hm[1].trim(), duration: hm[2].trim() }; continue; }
     if (cur) buf.push(line);
   }
   flush();
@@ -777,12 +763,15 @@ function ScriptTab({ project, update, presets }) {
   const [showDocContent, setShowDocContent] = useState(false);
   const [docInput, setDocInput] = useState("");
   const [docUploading, setDocUploading] = useState(false);
+  const [docErr, setDocErr] = useState("");
   const docFileRef = useRef();
 
   async function handleDocUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setDocErr("File too large — max 10 MB."); e.target.value = ""; return; }
     setDocUploading(true);
+    setDocErr("");
     try {
       if (file.name.match(/\.(txt|md)$/i)) {
         const text = await file.text();
@@ -796,8 +785,13 @@ function ScriptTab({ project, update, presets }) {
         update("scriptDocContent", result.value);
         update("scriptDocName", file.name);
         setShowDocContent(true);
+      } else {
+        setDocErr("Unsupported file type — use .txt, .md, or .docx.");
       }
-    } catch { /* silent */ }
+    } catch (e) {
+      console.warn("Vid Planner: file upload failed –", e);
+      setDocErr("Failed to read file — please try again.");
+    }
     setDocUploading(false);
     e.target.value = "";
   }
@@ -834,7 +828,7 @@ function ScriptTab({ project, update, presets }) {
   }
   function addSection() {
     if (!newSec.name.trim()) return;
-    update("outlineSections", [...sections, { id: Math.random().toString(36).slice(2), name: newSec.name, duration: newSec.duration, notes: '' }]);
+    update("outlineSections", [...sections, { id: crypto.randomUUID(), name: newSec.name, duration: newSec.duration, notes: '' }]);
     setNewSec({ name: '', duration: '' });
   }
   function deleteSection(id) { update("outlineSections", sections.filter((s) => s.id !== id)); }
@@ -846,7 +840,7 @@ function ScriptTab({ project, update, presets }) {
     const formatLine = isShort
       ? `Format: YouTube Short / vertical short-form video (~${vidLen} seconds, ~${estWords} words). Keep it punchy, fast-paced, hook in first 2 seconds.`
       : `Format: Long-form YouTube video (~${vidLen} minutes, ~${estWords} words)`;
-    return `Write a full script.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n${formatLine}\nOutline:\n${outlineText}\nCTA: ${project.cta}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${P.audience || "general"}\nWords: ~${P.words}\n${!isShort && P.broll ? "Include [B-ROLL] cues" : ""}\n${!isShort && P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${P.intro}"` : ""}${P.banned ? `\nNEVER use: ${P.banned}` : ""}\n${P.extra ? `Extra: ${P.extra}` : ""}`;
+    return `Write a full script.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n${formatLine}\nOutline:\n${outlineText}\nCTA: ${sp(project.cta)}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${sp(P.audience) || "general"}\nWords: ~${P.words}\n${!isShort && P.broll ? "Include [B-ROLL] cues" : ""}\n${!isShort && P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${sp(P.intro, 500)}"` : ""}${P.banned ? `\nNEVER use: ${sp(P.banned, 500)}` : ""}\n${P.extra ? `Extra: ${sp(P.extra, 500)}` : ""}`;
   }
   const totalMins = calcTotalMins(sections);
   const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
@@ -907,6 +901,7 @@ function ScriptTab({ project, update, presets }) {
               <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 8px" }}>Export your Google Doc as .docx or .txt, then upload it here to read it inside the app.</p>
               <input ref={docFileRef} type="file" accept=".txt,.md,.docx" style={{ display: "none" }} onChange={handleDocUpload} />
               <Btn sm color="gray" disabled={docUploading} onClick={() => docFileRef.current?.click()}>{docUploading ? "Reading…" : "📂 Upload .docx / .txt"}</Btn>
+              {docErr && <p style={{ color: "#f87171", fontSize: 12, margin: "8px 0 0" }}>⚠ {docErr}</p>}
             </div>
           ) : (
             <div>
@@ -936,7 +931,7 @@ function ScriptTab({ project, update, presets }) {
             <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
               <input value={s.name} onChange={(e) => updateSection(s.id, "name", e.target.value)} placeholder="Section name" style={{ ...inputStyle, flex: 1 }} />
               <input value={s.duration} onChange={(e) => updateSection(s.id, "duration", e.target.value)} placeholder="e.g., 3 min" style={{ ...inputStyle, width: isMobile ? 90 : 120, fontSize: isMobile ? 12 : 14 }} />
-              <button onClick={() => deleteSection(s.id)} style={{ background: "none", border: "none", color: "#64748b", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+              <button onClick={() => deleteSection(s.id)} aria-label="Delete section" style={{ background: "none", border: "none", color: "#64748b", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
             </div>
             <TArea value={s.notes} onChange={(v) => updateSection(s.id, "notes", v)} rows={2} placeholder="Key points for this section…" />
           </div>
@@ -950,7 +945,7 @@ function ScriptTab({ project, update, presets }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <Btn sm disabled={L["outline"]} onClick={() => run("outline",
               `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
-              `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
+              `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
             )}>{L["outline"] ? "✦ Generating…" : "✦ Generate Outline"}</Btn>
             {L["outline"] && <Btn sm color="gray" onClick={() => cancel("outline")}>■ Stop</Btn>}
           </div>
@@ -985,7 +980,7 @@ function ScriptTab({ project, update, presets }) {
         <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>📣 CALL TO ACTION</div>
           <TInput value={project.cta} onChange={(v) => update("cta", v)} placeholder="Your CTA… e.g., Subscribe and check out my next video on…" />
-          <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${project.title}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
+          <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${sp(project.title)}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
         </div>
       </Card>
       <Card title="Full Script" icon="📝" action={<div style={{ display: "flex", gap: 6 }}><Btn sm onClick={() => run("script", "Expert YouTube scriptwriter. Write complete production-ready scripts.", prompt(), 3000)} disabled={L["script"]}>{L["script"] ? "✦ Writing…" : isMobile ? "✦ Generate" : "✦ Auto-Generate Script"}</Btn>{L["script"] && <Btn sm color="gray" onClick={() => cancel("script")}>■ Stop</Btn>}</div>}>
@@ -1008,7 +1003,7 @@ function ScriptTab({ project, update, presets }) {
 function FilmingTab({ project, update }) {
   const isMobile = useIsMobile();
   const shots = project.shotList || [];
-  function addShot() { update("shotList", [...shots, { id: Date.now().toString(), text: "", done: false }]); }
+  function addShot() { update("shotList", [...shots, { id: crypto.randomUUID(), text: "", done: false }]); }
   function updateShot(id, field, val) { update("shotList", shots.map((s) => s.id === id ? { ...s, [field]: val } : s)); }
   function deleteShot(id) { update("shotList", shots.filter((s) => s.id !== id)); }
   const doneCount = shots.filter((s) => s.done).length;
@@ -1036,7 +1031,7 @@ function FilmingTab({ project, update }) {
           <div key={shot.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <input type="checkbox" checked={shot.done} onChange={(e) => updateShot(shot.id, "done", e.target.checked)} style={{ accentColor: "#2563eb", width: 16, height: 16, flexShrink: 0, cursor: "pointer" }} />
             <TInput value={shot.text} onChange={(v) => updateShot(shot.id, "text", v)} placeholder="Describe the shot…" style={{ flex: 1, textDecoration: shot.done ? "line-through" : "none", color: shot.done ? "#475569" : "#ffffff" }} />
-            <button onClick={() => deleteShot(shot.id)} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: "0 2px", flexShrink: 0 }}>×</button>
+            <button onClick={() => deleteShot(shot.id)} aria-label="Delete shot" style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: "0 2px", flexShrink: 0 }}>×</button>
           </div>
         ))}
         <button onClick={addShot} style={{ background: "none", border: "1px dashed #334155", borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: "#94a3b8", fontSize: 13, width: "100%", marginTop: 4 }}>+ Add Shot</button>
@@ -1054,6 +1049,12 @@ function FinishTab({ project, update, presets }) {
   const [L, setL] = useState({});
   const [O, setO] = useState({});
   const [checks, setChecks] = useState(Array(7).fill(false));
+  const [justPublished, setJustPublished] = useState(false);
+  function markPublished() {
+    update("stage", "Published");
+    setJustPublished(true);
+    setTimeout(() => setJustPublished(false), 2000);
+  }
   const abortRef = useRef(null);
   function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
   async function run(k, sys, usr, tok = 1200) {
@@ -1085,7 +1086,7 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Video Titles" icon="🏷️" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["titles"]} onClick={() => run("titles", "YouTube title expert. Return exactly 3 titles, one per line, no numbering. Include the original working title as the first option.", `3 clickable titles:\nWorking: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\n\nIMPORTANT: The first title should be a polished version of the working title "${project.title}".`)}>{L["titles"] ? "✦ Generating…" : "✦ Generate Titles"}</Btn>{L["titles"] && <Btn sm color="gray" onClick={() => cancel("titles")}>■ Stop</Btn>}</div>}>
+      <Card title="Video Titles" icon="🏷️" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["titles"]} onClick={() => run("titles", "YouTube title expert. Return exactly 3 titles, one per line, no numbering. Include the original working title as the first option.", `3 clickable titles:\nWorking: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n\nIMPORTANT: The first title should be a polished version of the working title "${sp(project.title)}".`)}>{L["titles"] ? "✦ Generating…" : "✦ Generate Titles"}</Btn>{L["titles"] && <Btn sm color="gray" onClick={() => cancel("titles")}>■ Stop</Btn>}</div>}>
         {titleOptions.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
             {titleOptions.map((t, i) => (
@@ -1108,7 +1109,7 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${project.title}\nNiche: ${project.niche}\nKeywords: ${project.keywords.join(", ")}\nCTA: ${project.cta}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${s.name}: ${s.notes}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : isMobile ? "✦ Write" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
+      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\nCTA: ${sp(project.cta)}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${sp(s.name)}: ${sp(s.notes)}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : isMobile ? "✦ Write" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
         <TArea value={project.metaDescription} onChange={(v) => update("metaDescription", v)} rows={6} placeholder="Your YouTube description…" />
         {O["desc"] && (
           <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginTop: 8 }}>
@@ -1120,12 +1121,12 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Tags" icon="🔖" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["tags"]} onClick={() => run("tags", "YouTube SEO expert. Return only comma-separated tags, no numbering.", `15-20 tags for: ${project.title} / ${project.niche} / keywords: ${project.keywords.join(", ")}`)}>{L["tags"] ? "✦ Generating…" : "✦ Generate Tags"}</Btn>{L["tags"] && <Btn sm color="gray" onClick={() => cancel("tags")}>■ Stop</Btn>}</div>}>
+      <Card title="Tags" icon="🔖" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["tags"]} onClick={() => run("tags", "YouTube SEO expert. Return only comma-separated tags, no numbering.", `15-20 tags for: ${sp(project.title)} / ${sp(project.niche)} / keywords: ${project.keywords.map((k) => sp(k)).join(", ")}`)}>{L["tags"] ? "✦ Generating…" : "✦ Generate Tags"}</Btn>{L["tags"] && <Btn sm color="gray" onClick={() => cancel("tags")}>■ Stop</Btn>}</div>}>
         {project.metaTags?.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
             {project.metaTags.map((t, i) => (
               <span key={i} style={{ background: "#1e3a5f", color: "#93c5fd", padding: "3px 10px", borderRadius: 20, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                {t}<button onClick={() => update("metaTags", project.metaTags.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 13 }}>×</button>
+                {t}<button onClick={() => update("metaTags", project.metaTags.filter((_, j) => j !== i))} aria-label={`Remove tag ${t}`} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 13 }}>×</button>
               </span>
             ))}
           </div>
@@ -1153,7 +1154,9 @@ function FinishTab({ project, update, presets }) {
           ))}
         </div>
         <div style={{ borderTop: "1px solid #1e293b", paddingTop: 14, marginTop: 4 }}>
-          <Btn color="green" onClick={() => update("stage", "Published")}>🎉 Mark as Published</Btn>
+          <Btn color="green" onClick={justPublished ? undefined : markPublished}>
+            {justPublished ? "✓ Published!" : "🎉 Mark as Published"}
+          </Btn>
         </div>
       </Card>
     </div>
@@ -1166,6 +1169,7 @@ function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
   const [tab, setTab] = useState(0);
   const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Filming", icon: "🎬" }, { label: "Finish", icon: "🚀" }];
   function update(field, value) { onUpdate({ ...project, [field]: value, isPlaceholder: false }); }
+  const [delConfirm, setDelConfirm] = useState(false);
   return (
     <div style={{ minHeight: "100vh", background: "#0f172a" }}>
       {/* Top bar */}
@@ -1181,7 +1185,8 @@ function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
           <select value={project.stage} onChange={(e) => update("stage", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "6px 10px", fontSize: 12, background: "#1a2234", color: "#ffffff" }}>
             {STAGES.map((s) => <option key={s}>{s}</option>)}
           </select>
-          <button onClick={() => { if (confirm("Delete this project?")) onDelete(); }} style={{ background: "none", border: "1px solid #7f1d1d", borderRadius: 8, padding: "5px 10px", color: "#f87171", fontSize: 13, cursor: "pointer" }}>🗑</button>
+          <button onClick={() => setDelConfirm(true)} aria-label="Delete project" style={{ background: "none", border: "1px solid #7f1d1d", borderRadius: 8, padding: "5px 10px", color: "#f87171", fontSize: 13, cursor: "pointer" }}>🗑</button>
+          {delConfirm && <ConfirmModal message="Delete this project? This cannot be undone." onConfirm={() => { setDelConfirm(false); onDelete(); }} onCancel={() => setDelConfirm(false)} />}
         </div>
       </div>
 
@@ -1268,14 +1273,16 @@ function NewProjectModal({ onSelect, onClose }) {
 
 /* ── Project Card ── */
 function PCard({ project, onClick, onDelete }) {
+  const [delConfirm, setDelConfirm] = useState(false);
   return (
     <div onClick={onClick} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", project.id); e.dataTransfer.effectAllowed = "move"; }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 14, padding: 16, cursor: "pointer", transition: "box-shadow .15s" }} onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 4px 14px rgba(109,40,217,.12)")} onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}>
+    {delConfirm && <ConfirmModal message="Delete this project? This cannot be undone." onConfirm={() => { setDelConfirm(false); onDelete(); }} onCancel={() => setDelConfirm(false)} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <Badge stage={project.stage} sm />
           {project.contentType === "short" && <span style={{ background: "#2e1065", color: "#a855f7", borderRadius: 20, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>📱 SHORT</span>}
         </div>
-        <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) onDelete(); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
+        <button onClick={(e) => { e.stopPropagation(); setDelConfirm(true); }} aria-label="Delete project" style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 18, padding: 0 }}>×</button>
       </div>
       {project.thumbnailImageUrl && <div style={{ width: "100%", aspectRatio: "16/9", borderRadius: 7, marginBottom: 7, overflow: "hidden" }}><img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", background: "#0f172a" }} /></div>}
       <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 2px", color: "#ffffff", lineHeight: 1.4 }}>{project.title}</h3>
@@ -1292,6 +1299,8 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [L, setL] = useState({});
+  const [genErr, setGenErr] = useState("");
+  const [deleteIdeaId, setDeleteIdeaId] = useState(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [subject, setSubject] = useState("");
   const [promotePending, setPromotePending] = useState(null);
@@ -1301,21 +1310,29 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
 
   async function aiIdeas(topic) {
     setShowPrompt(false);
+    setGenErr("");
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     setL((l) => ({ ...l, gen: true }));
     try {
       const raw = await ai(
         `You are a YouTube content strategist. You ONLY generate ideas strictly about the topic the user gives you. Every single idea must be directly about that topic — no tangents, no generic ideas. Return ONLY a valid JSON array, no markdown, no explanation.`,
-        `Generate 5 YouTube video ideas. Every idea MUST be specifically about: "${topic}". Do not stray from this topic for any of the 5 ideas.\n\nReturn a JSON array of exactly 5 objects, each with: title (specific catchy video title about ${topic}), notes (1-2 sentence description explaining the angle), priority (one of: "💡 Idea", "⭐ High Priority", "🔥 Hot Topic"), tags (array of 2-3 short tags related to ${topic}).`,
+        `Generate 5 YouTube video ideas. Every idea MUST be specifically about: "${sp(topic)}". Do not stray from this topic for any of the 5 ideas.\n\nReturn a JSON array of exactly 5 objects, each with: title (specific catchy video title about ${sp(topic)}), notes (1-2 sentence description explaining the angle), priority (one of: "💡 Idea", "⭐ High Priority", "🔥 Hot Topic"), tags (array of 2-3 short tags related to ${sp(topic)}).`,
         1500,
         abortRef.current.signal
       );
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      let parsed;
+      try {
+        parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      } catch {
+        setGenErr("AI returned unexpected data — please try again.");
+        setL((l) => ({ ...l, gen: false }));
+        return;
+      }
       if (Array.isArray(parsed)) {
         const newIdeas = parsed.map((idea) => ({
           ...blankIdea(),
-          id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+          id: crypto.randomUUID(),
           title: idea.title || "",
           notes: idea.notes || "",
           priority: idea.priority || "💡 Idea",
@@ -1325,8 +1342,12 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
         setIdeas(updated);
         saveIdeas(updated);
         setVisibleCount(5);
+      } else {
+        setGenErr("AI returned unexpected data — please try again.");
       }
-    } catch (e) { if (e.name !== "AbortError") console.error("Idea gen failed:", e); }
+    } catch (e) {
+      if (e.name !== "AbortError") setGenErr("Idea generation failed — check your connection and try again.");
+    }
     setL((l) => ({ ...l, gen: false }));
   }
 
@@ -1361,11 +1382,14 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
     setPromotePending(null);
   }
 
-  const filtered = ideas.filter((idea) => {
-    if (filter !== "All" && idea.priority !== filter) return false;
-    if (search && !idea.title.toLowerCase().includes(search.toLowerCase()) && !idea.notes.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  });
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return ideas.filter((idea) => {
+      if (filter !== "All" && idea.priority !== filter) return false;
+      if (q && !idea.title.toLowerCase().includes(q) && !(idea.notes || "").toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [ideas, filter, search]);
 
   const dragItem = useRef(null);
   const dragOver = useRef(null);
@@ -1384,6 +1408,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
+      {deleteIdeaId && <ConfirmModal message="Delete this idea? This cannot be undone." onConfirm={() => { deleteIdea(deleteIdeaId); setDeleteIdeaId(null); }} onCancel={() => setDeleteIdeaId(null)} />}
       {promotePending && <NewProjectModal onSelect={(ct) => doPromote(promotePending, ct)} onClose={() => setPromotePending(null)} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
@@ -1397,6 +1422,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
         </div>
       </div>
 
+      {genErr && <p style={{ color: "#f87171", fontSize: 13, margin: "0 0 16px" }}>⚠ {genErr}</p>}
       {showPrompt && (
         <div style={{ background: "#1e293b", border: "1px solid #3b82f6", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#93c5fd", marginBottom: 10 }}>✦ What topic should these 5 ideas be about?</div>
@@ -1444,7 +1470,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
                     </select>
                     <Btn sm color="green" onClick={() => setEditingId(null)}>Done</Btn>
                     <Btn sm onClick={() => promoteToProject(idea)}>🚀 Make Project</Btn>
-                    <Btn sm color="red" onClick={() => { if (confirm("Delete this idea?")) deleteIdea(idea.id); }}>Delete</Btn>
+                    <Btn sm color="red" onClick={() => setDeleteIdeaId(idea.id)}>Delete</Btn>
                   </div>
                 </div>
               ) : (
@@ -1492,6 +1518,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
   const [rs, setRs] = useState(null);
   const [dragOverDay, setDragOverDay] = useState(null);
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [deleteProjectId, setDeleteProjectId] = useState(null);
   const first = new Date(cy, cm, 1).getDay();
   const total = new Date(cy, cm + 1, 0).getDate();
   const cells = Array(first).fill(null).concat(Array.from({ length: total }, (_, i) => i + 1));
@@ -1541,6 +1568,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
         <Btn onClick={() => setShowTypeModal(true)} sm={isMobile}>+ New Project</Btn>
       </div>
       {showTypeModal && <NewProjectModal onSelect={createNew} onClose={() => setShowTypeModal(false)} />}
+      {deleteProjectId && <ConfirmModal message="Delete this project? This cannot be undone." onConfirm={() => { const u = projects.filter((x) => x.id !== deleteProjectId); setProjects(u); saveProjectsData(u); if (rs?.id === deleteProjectId) setRs(null); setDeleteProjectId(null); }} onCancel={() => setDeleteProjectId(null)} />}
       {ideas?.length > 0 && (
         <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: isMobile ? "flex-start" : "center", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", gap: isMobile ? 10 : 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1562,9 +1590,9 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <span style={{ fontWeight: 700, fontSize: 15 }}>📅 Content Calendar</span>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => { let m = cm - 1, y = cy; if (m < 0) { m = 11; y--; } setCm(m); setCy(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>‹</button>
+            <button onClick={() => { let m = cm - 1, y = cy; if (m < 0) { m = 11; y--; } setCm(m); setCy(y); }} aria-label="Previous month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>‹</button>
             <span style={{ fontWeight: 600, minWidth: 110, textAlign: "center", fontSize: 13 }}>{MONTHS[cm]} {cy}</span>
-            <button onClick={() => { let m = cm + 1, y = cy; if (m > 11) { m = 0; y++; } setCm(m); setCy(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>›</button>
+            <button onClick={() => { let m = cm + 1, y = cy; if (m > 11) { m = 0; y++; } setCm(m); setCy(y); }} aria-label="Next month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>›</button>
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 2 }}>
@@ -1581,7 +1609,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
                   <div key={p.id} draggable onDragStart={(e) => { e.dataTransfer.setData("projectId", p.id); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }} onClick={() => open(p.id)} onContextMenu={(e) => { e.preventDefault(); setRs({ id: p.id, x: e.clientX, y: e.clientY }); }}
                     style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 9, fontWeight: 600, borderRadius: 3, padding: "1px 3px", cursor: "grab", overflow: "hidden", marginBottom: 1, maxWidth: "100%", display: "flex", alignItems: "center", gap: 2 }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
-                    <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.7, cursor: "pointer", fontSize: 10, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                    <button onClick={(e) => { e.stopPropagation(); setDeleteProjectId(p.id); }} aria-label={`Delete ${p.title}`} style={{ background: "none", border: "none", color: "inherit", opacity: 0.7, cursor: "pointer", fontSize: 10, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -1596,7 +1624,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas }) {
           <div style={{ position: "fixed", top: Math.min(rs.y, window.innerHeight - 100), left: Math.min(rs.x, window.innerWidth - 230), background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,.12)", zIndex: 999, minWidth: 200 }}>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Reschedule</div>
             <input type="date" style={{ width: "100%", border: "1px solid #334155", borderRadius: 7, padding: "6px 10px", fontSize: 13, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", colorScheme: "dark" }} onChange={(e) => reschedule(rs.id, e.target.value)} />
-            <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== rs.id); setProjects(u); saveProjectsData(u); setRs(null); } }} style={{ marginTop: 8, width: "100%", background: "none", border: "1px solid #7f1d1d", borderRadius: 7, padding: "6px 0", color: "#f87171", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🗑 Delete Project</button>
+            <button onClick={() => setDeleteProjectId(rs.id)} style={{ marginTop: 8, width: "100%", background: "none", border: "1px solid #7f1d1d", borderRadius: 7, padding: "6px 0", color: "#f87171", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>🗑 Delete Project</button>
           </div>
         </>
       )}
@@ -1637,16 +1665,17 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [showSchedulePanel, setShowSchedulePanel] = useState(false);
   const [schedule, setSchedule] = useState(() => {
-    try { const s = localStorage.getItem("tubeflow-schedule"); return s ? JSON.parse(s) : { 0:"none",1:"none",2:"none",3:"none",4:"none",5:"none",6:"none" }; }
+    try { const s = localStorage.getItem(SK.SCHEDULE); return s ? JSON.parse(s) : { 0:"none",1:"none",2:"none",3:"none",4:"none",5:"none",6:"none" }; }
     catch { return { 0:"none",1:"none",2:"none",3:"none",4:"none",5:"none",6:"none" }; }
   });
   const [weeksAhead, setWeeksAhead] = useState(8);
   const [fillCount, setFillCount] = useState(null);
+  const [deleteProjectId, setDeleteProjectId] = useState(null);
 
   function updateScheduleDay(dow, val) {
     const next = { ...schedule, [dow]: val };
     setSchedule(next);
-    localStorage.setItem("tubeflow-schedule", JSON.stringify(next));
+    localStorage.setItem(SK.SCHEDULE, JSON.stringify(next));
   }
 
   function fillSchedule() {
@@ -1762,6 +1791,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   return (
     <div style={{ maxWidth: 1500, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
       {showTypeModal && <NewProjectModal onSelect={createNew} onClose={() => setShowTypeModal(false)} />}
+      {deleteProjectId && <ConfirmModal message="Delete this project? This cannot be undone." onConfirm={() => { const u = projects.filter((x) => x.id !== deleteProjectId); setProjects(u); saveProjectsData(u); if (rs?.id === deleteProjectId) setRs(null); setDeleteProjectId(null); }} onCancel={() => setDeleteProjectId(null)} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: 0, color: "#ffffff" }}>Content Calendar</h1>
@@ -1774,9 +1804,9 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <span style={{ fontWeight: 700, fontSize: 17 }}>{MONTHS[month]} {year}</span>
             <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => { let m = month - 1, y = year; if (m < 0) { m = 11; y--; } setMonth(m); setYear(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>‹</button>
+              <button onClick={() => { let m = month - 1, y = year; if (m < 0) { m = 11; y--; } setMonth(m); setYear(y); }} aria-label="Previous month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>‹</button>
               <button onClick={() => { setMonth(new Date().getMonth()); setYear(new Date().getFullYear()); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, padding: "0 10px", cursor: "pointer", fontSize: 12 }}>Today</button>
-              <button onClick={() => { let m = month + 1, y = year; if (m > 11) { m = 0; y++; } setMonth(m); setYear(y); }} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>›</button>
+              <button onClick={() => { let m = month + 1, y = year; if (m > 11) { m = 0; y++; } setMonth(m); setYear(y); }} aria-label="Next month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 30, height: 30, cursor: "pointer", fontSize: 15 }}>›</button>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 2 }}>
@@ -1796,7 +1826,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                       onClick={() => { setEditId(p.id); setPage("Project"); }}
                       style={{ background: SC[p.stage]?.bg || "#1e3a5f", color: SC[p.stage]?.text || "#93c5fd", fontSize: 11, fontWeight: 600, borderRadius: 5, padding: "4px 7px", cursor: "grab", overflow: "hidden", marginBottom: 3, border: `1px solid ${SC[p.stage]?.dot || "#3b82f6"}22`, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 3, boxSizing: "border-box" }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.title}</span>
-                      <button onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "inherit", opacity: 0.6, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                      <button onClick={(e) => { e.stopPropagation(); setDeleteProjectId(p.id); }} aria-label={`Delete ${p.title}`} style={{ background: "none", border: "none", color: "inherit", opacity: 0.6, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
                   ))}
                 </div>
@@ -1815,7 +1845,7 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#ffffff", lineHeight: 1.4 }}>{p.title}</div>
                 <div style={{ fontSize: 10, color: "#64748b" }}>{parseLocalDate(p.publishDate)?.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
                 </div>
-                <button onClick={() => { if (confirm("Delete this project?")) { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); } }} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
+                <button onClick={() => setDeleteProjectId(p.id)} aria-label={`Delete ${p.title}`} style={{ background: "none", border: "none", color: "#475569", cursor: "pointer", fontSize: 16, padding: 0, flexShrink: 0 }}>×</button>
               </div>
             ))}
           </div>
@@ -1872,7 +1902,7 @@ function PresetsPage({ presets, setPresets }) {
   const TYPES = [{ id: "Intro", lbl: "Intro Template" },{ id: "Outro", lbl: "Outro Template" },{ id: "Tone", lbl: "Tone / Style" },{ id: "Avoid", lbl: "Banned Words" },{ id: "CTA", lbl: "CTA Template" },{ id: "Niche", lbl: "Niche Context" },{ id: "Custom", lbl: "Custom Instruction" }];
   async function save() {
     if (!label.trim() || !content.trim()) return;
-    const u = [...presets, { id: Date.now().toString(), type, label, content }];
+    const u = [...presets, { id: crypto.randomUUID(), type, label, content }];
     setPresets(u);
     await savePresets(u);
     const confirmations = {
@@ -1958,36 +1988,11 @@ function PresetsPage({ presets, setPresets }) {
 /* ── Account Page ── */
 function SettingsPage({ user }) {
   const isMobile = useIsMobile();
-  const [anthropic, setAnthropic] = useState(getKey("anthropic-key"));
-  const [youtube, setYoutube] = useState(getKey("youtube-key"));
-  const [saved, setSaved] = useState(false);
-
-  // Re-read keys from localStorage after cloud load resolves on sign-in
-  useEffect(() => {
-    setAnthropic(getKey("anthropic-key"));
-    setYoutube(getKey("youtube-key"));
-  }, [user?.uid]);
-
-  function save() {
-    setKey("anthropic-key", anthropic.trim());
-    setKey("youtube-key", youtube.trim());
-    if (auth.currentUser) {
-      saveUserKeys(auth.currentUser.uid, {
-        anthropicKey: anthropic.trim(),
-        youtubeKey: youtube.trim(),
-      }).catch(() => {});
-    }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
       <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 28px", color: "#ffffff" }}>👤 Account</h1>
-
-      {/* Profile card */}
       {user && (
-        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, marginBottom: 16 }}>
+        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             {user.photoURL
               ? <img src={user.photoURL} alt="" style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0 }} />
@@ -2005,39 +2010,6 @@ function SettingsPage({ user }) {
           </div>
         </div>
       )}
-
-      {/* API Keys */}
-      <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24 }}>
-        <h3 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, color: "#ffffff", margin: "0 0 4px" }}>🔑 API Keys</h3>
-        <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 20px" }}>Keys are saved to your account and synced across all your devices.</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>Anthropic API Key <span style={{ color: "#f87171", fontSize: 11 }}>required</span></div>
-            <input
-              type="password"
-              value={anthropic}
-              onChange={(e) => setAnthropic(e.target.value)}
-              placeholder="sk-ant-api03-..."
-              style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
-            />
-            <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Get yours at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>console.anthropic.com</a></p>
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#cbd5e1", marginBottom: 6 }}>YouTube Data API Key <span style={{ color: "#64748b", fontSize: 11 }}>optional</span></div>
-            <input
-              type="password"
-              value={youtube}
-              onChange={(e) => setYoutube(e.target.value)}
-              placeholder="AIza..."
-              style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", fontSize: 14, boxSizing: "border-box", background: "#0f172a", color: "#ffffff", outline: "none" }}
-            />
-            <p style={{ fontSize: 11, color: "#64748b", margin: "6px 0 0" }}>Without this, YouTube search uses AI simulation instead of real results. Get one free at <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>Google Cloud Console</a>.</p>
-          </div>
-          <div>
-            <Btn onClick={save}>{saved ? "✓ Saved!" : "Save Keys"}</Btn>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2106,42 +2078,50 @@ export default function App() {
       setAuthReady(true);
       if (u) {
         _currentUid = u.uid;
-        // Load API keys (existing behaviour)
-        try {
-          const keys = await loadUserKeys(u.uid);
-          if (keys.anthropicKey) setKey("anthropic-key", keys.anthropicKey);
-          if (keys.youtubeKey) setKey("youtube-key", keys.youtubeKey);
-        } catch {}
         // Sync cloud data
         try {
-          const cloudData = await loadUserData(u.uid);
+          const [cloudData, localP, localPr, localId, localPts] = await Promise.all([
+            loadUserData(u.uid),
+            stor("get", SK.PROJECTS),
+            stor("get", SK.PRESETS),
+            stor("get", SK.IDEAS),
+            stor("get", SK.PROJECTS_TS),
+          ]);
           if (cloudData) {
-            // Cloud exists — use it as source of truth
-            const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
-            const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
-            const pr = Array.isArray(cloudData.presets)  ? cloudData.presets  : [];
-            setProjects(p);
-            setIdeas(id);
-            setPresets(pr);
-            await Promise.all([
-              stor("set", "tubeflow-projects", p),
-              stor("set", "tubeflow-ideas",    id),
-              stor("set", "tubeflow-presets",  pr),
-            ]);
+            // Compare timestamps — cloud uses server timestamp (Firestore Timestamp or ms number)
+            const rawCloud = cloudData.projectsSavedAt;
+            const cloudTs = rawCloud?.toMillis?.() ?? rawCloud ?? 0;
+            const localTs = localPts || 0;
+            if (localTs > cloudTs && Array.isArray(localP) && localP.length > 0) {
+              // Local is newer — push it to cloud (server timestamp written by saveUserProjects)
+              saveUserProjects(u.uid, localP).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
+              // Keep the already-loaded local state (Effect 1 already set it)
+            } else {
+              // Cloud is newer (or equal) — use it
+              const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
+              const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
+              const pr = Array.isArray(cloudData.presets)  ? cloudData.presets  : [];
+              setProjects(p);
+              setIdeas(id);
+              setPresets(pr);
+              await Promise.all([
+                stor("set", SK.PROJECTS, p),
+                stor("set", SK.IDEAS,    id),
+                stor("set", SK.PRESETS,  pr),
+              ]);
+            }
           } else {
             // First-time cloud sync — upload current local data
-            const [localP, localPr, localId] = await Promise.all([
-              stor("get", "tubeflow-projects"),
-              stor("get", "tubeflow-presets"),
-              stor("get", "tubeflow-ideas"),
-            ]);
+            const ts = Date.now();
+            await stor("set", SK.PROJECTS_TS, ts);
             await saveAllUserData(u.uid, {
-              projects: Array.isArray(localP)  ? localP  : [],
-              ideas:    Array.isArray(localId) ? localId : [],
-              presets:  Array.isArray(localPr) ? localPr : [],
+              projects:        Array.isArray(localP)  ? localP  : [],
+              ideas:           Array.isArray(localId) ? localId : [],
+              presets:         Array.isArray(localPr) ? localPr : [],
+              projectsSavedAt: ts,
             });
           }
-        } catch {}
+        } catch (e) { console.warn("Vid Planner: cloud sync failed –", e); }
       } else {
         _currentUid = null;
       }
@@ -2151,9 +2131,9 @@ export default function App() {
 
   useEffect(() => {
     Promise.all([
-      stor("get", "tubeflow-projects"),
-      stor("get", "tubeflow-presets"),
-      stor("get", "tubeflow-ideas"),
+      stor("get", SK.PROJECTS),
+      stor("get", SK.PRESETS),
+      stor("get", SK.IDEAS),
     ]).then(([p, pr, id]) => {
       setProjects(Array.isArray(p) ? p : []);
       setPresets(Array.isArray(pr) ? pr : []);

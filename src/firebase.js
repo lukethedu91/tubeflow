@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbOUHqaMFKKnZijZv9q_LjZZjI6Wkj98o",
@@ -30,7 +30,7 @@ export async function loadUserData(uid) {
 }
 
 export async function saveUserProjects(uid, projects) {
-  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { projects }, { merge: true });
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { projects, projectsSavedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function saveUserIdeas(uid, ideas) {

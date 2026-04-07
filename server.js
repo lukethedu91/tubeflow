@@ -2,10 +2,35 @@ import 'dotenv/config';
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { durationSecs, fmtViews, fmtDuration, timeAgo } from './src/utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+
+/* ── Security headers ── */
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
+/* ── CORS — API routes only ── */
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3001').split(',').map((o) => o.trim());
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.json({ limit: '100kb' }));
 
 /* ── Simple in-memory rate limiter ── */
@@ -19,7 +44,7 @@ function rateLimit(key, maxPerMinute) {
   return hits.length > maxPerMinute;
 }
 // Clean up old entries every 5 minutes
-setInterval(() => {
+const _cleanupInterval = setInterval(() => {
   const cutoff = Date.now() - 60_000;
   for (const [k, hits] of rateLimitMap) {
     const fresh = hits.filter((t) => t > cutoff);
@@ -167,35 +192,6 @@ app.get('/api/youtube', async (req, res) => {
   }
 });
 
-function durationSecs(iso) {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return 0;
-  return +(m[1] || 0) * 3600 + +(m[2] || 0) * 60 + +(m[3] || 0);
-}
-
-function fmtViews(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M views';
-  if (n >= 1_000) return Math.round(n / 1_000) + 'K views';
-  return n + ' views';
-}
-
-function fmtDuration(iso) {
-  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-  if (!m) return '';
-  const h = +(m[1] || 0), min = +(m[2] || 0), s = +(m[3] || 0);
-  if (h) return `${h}:${String(min).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${min}:${String(s).padStart(2, '0')}`;
-}
-
-function timeAgo(str) {
-  const d = Math.floor((Date.now() - new Date(str)) / 86400000);
-  if (d < 1) return 'Today';
-  if (d < 7) return `${d}d ago`;
-  if (d < 30) return `${Math.floor(d / 7)}w ago`;
-  if (d < 365) return `${Math.floor(d / 30)}mo ago`;
-  return `${Math.floor(d / 365)}y ago`;
-}
-
 /* ── Image generation — returns Pollinations URL for client to load directly ── */
 app.get('/api/generate-image', (req, res) => {
   const { prompt } = req.query;
@@ -217,4 +213,11 @@ app.get('/{*splat}', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✓ TubeFlow server running on http://localhost:${PORT}`));
+const server = app.listen(PORT, () => console.log(`✓ Vid Planner server running on http://localhost:${PORT}`));
+
+function shutdown() {
+  clearInterval(_cleanupInterval);
+  server.close(() => process.exit(0));
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
