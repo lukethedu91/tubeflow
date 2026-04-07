@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveUserPresets, saveAllUserData } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveAllUserData } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 import { durationSecs, fmtViews, fmtDuration, timeAgo } from "./utils.js";
 
@@ -8,14 +8,10 @@ import { durationSecs, fmtViews, fmtDuration, timeAgo } from "./utils.js";
 const SK = {
   PROJECTS:    "tubeflow-projects",
   PROJECTS_TS: "tubeflow-projects-ts",
-  PRESETS:     "tubeflow-presets",
   IDEAS:       "tubeflow-ideas",
   SCHEDULE:    "tubeflow-schedule",
 };
 
-
-/* ── Prompt sanitizer — trims and caps user input before AI interpolation ── */
-function sp(s, max = 300) { return String(s || "").trim().slice(0, max); }
 
 /* ── Mobile breakpoint hook ── */
 function useIsMobile() {
@@ -49,10 +45,7 @@ async function saveProjectsData(p) {
   await stor("set", SK.PROJECTS_TS, ts);
   if (_currentUid) saveUserProjects(_currentUid, p).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
-async function savePresets(p) {
-  await stor("set", SK.PRESETS, p);
-  if (_currentUid) saveUserPresets(_currentUid, p).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
-}
+
 async function saveIdeas(ideas) {
   await stor("set", SK.IDEAS, ideas);
   if (_currentUid) saveUserIdeas(_currentUid, ideas).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
@@ -117,33 +110,6 @@ function blankIdea() {
   };
 }
 
-/* ── AI helper — routes through server proxy ── */
-async function ai(system, user, maxTokens = 1500, signal) {
-  try {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: "user", content: user }],
-      }),
-      signal,
-    });
-    const d = await res.json();
-    if (!res.ok) return `⚠️ AI unavailable — ${d.error || "please try again."}`;
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.content?.map((b) => b.text || "").join("") || "";
-  } catch (e) {
-    if (e.name === "AbortError") throw e;
-    return "⚠️ AI unavailable — check your connection and try again.";
-  }
-}
-function pCtx(presets) {
-  if (!presets?.length) return "";
-  return "\n\nCreator presets:\n" + presets.map((p) => `[${p.label}]: ${p.content}`).join("\n");
-}
 
 /* ── Date helper ── */
 function parseLocalDate(str) {
@@ -233,32 +199,12 @@ function ConfirmModal({ message, onConfirm, onCancel }) {
     </div>
   );
 }
-function AIOut({ k, loading, output, onRun, label, onUse, onStop }) {
-  return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <Btn onClick={onRun} disabled={loading[k]} sm>{loading[k] ? "✦ Generating…" : "✦ " + label}</Btn>
-        {loading[k] && <Btn sm color="gray" onClick={onStop}>■ Stop</Btn>}
-      </div>
-      {output[k] && (
-        <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 16, marginTop: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ AI Suggestion</span>
-            {onUse && <Btn sm onClick={() => onUse(output[k])} style={{ padding: "3px 10px", fontSize: 11 }}>Use this</Btn>}
-          </div>
-          <p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{output[k]}</p>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ── Sidebar ── */
 const NAV_ITEMS = [
   { id: "Home",     icon: "🏠", label: "Workflow"   },
   { id: "Calendar", icon: "📅", label: "Calendar"   },
   { id: "Ideas",    icon: "💡", label: "Idea Vault" },
-  { id: "Presets",  icon: "⚙️", label: "Presets"    },
   { id: "Settings", icon: "👤", label: "Account"    },
 ];
 function Sidebar({ page, setPage, projects, ideas, user }) {
@@ -378,25 +324,13 @@ function YTSearch({ onAdd }) {
     if (!q.trim()) return;
     setLoading(true); setDone(true); setSearchErr("");
     try {
-      // Try server proxy (uses server-side YouTube API key)
       const { type, sort, duration, date } = f;
       const params = new URLSearchParams({ q: q.trim(), sort, duration, date, type });
       const r = await fetch(`/api/youtube?${params}`);
-      if (r.ok) {
-        const data = await r.json();
-        if (Array.isArray(data)) { setRes(data); setLoading(false); return; }
-        if (data.error) setSearchErr(data.error);
-      }
-      // Fallback: AI-simulated results if YouTube key not configured
-      const raw = await ai("Return ONLY a valid JSON array, no markdown, no backticks.", `YouTube search: "${sp(q, 200)}". Return JSON array of 12 objects: title, channel, views, duration, publishedAgo, thumbnail (visual desc), whyItWorks (1 sentence), url (youtube.com/watch?v=XXX). Real trends only.`, 2000);
-      try {
-        const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-        setRes(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        setRes([]);
-        if (!searchErr) setSearchErr("AI returned unexpected data — try again.");
-      }
-    } catch (e) { setRes([]); if (e.name !== "AbortError") setSearchErr("Search failed — check your connection and try again."); }
+      const data = await r.json();
+      if (r.ok && Array.isArray(data)) { setRes(data); }
+      else setSearchErr(data.error || "Search failed — try again.");
+    } catch { setSearchErr("Search failed — check your connection and try again."); }
     setLoading(false);
   }
 
@@ -483,38 +417,14 @@ function YTSearch({ onAdd }) {
 }
 
 /* ── Tab: Research ── */
-function ResearchTab({ project, update, presets }) {
+function ResearchTab({ project, update }) {
   const isMobile = useIsMobile();
-  const [L, setL] = useState({});
-  const [O, setO] = useState({});
-  const abortRef = useRef(null);
-  function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
-  async function run(k, sys, usr) {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setL((l) => ({ ...l, [k]: true }));
-    try { const r = await ai(sys + pCtx(presets), usr, 1500, abortRef.current.signal); setO((o) => ({ ...o, [k]: r })); }
-    catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error — try again." })); }
-    setL((l) => ({ ...l, [k]: false }));
-  }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card title="Topic & Focus" icon="📈">
         <Fld label="Working Title"><TInput value={project.title} onChange={(v) => update("title", v)} placeholder="Untitled Video" /></Fld>
         <Fld label="Niche / Main Topic" mt={12}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <TInput value={project.niche} onChange={(v) => update("niche", v)} placeholder="e.g., Backpacking, Tech Reviews…" style={{ flex: 1 }} />
-            <Btn sm disabled={L["analyze"]} onClick={() => run("analyze",
-              `You are a YouTube SEO and content strategy expert. Return ONLY a valid JSON object, no markdown, no explanation.`,
-              `Analyze this YouTube topic. Return exactly this JSON structure:
-{"angles":[{"title":"video title idea","hook":"one-sentence hook for the video","why":"why this angle performs well"}],"keywords":["kw1","kw2","kw3","kw4","kw5"],"formats":["format1","format2","format3"],"tips":["tip1","tip2","tip3"]}
-Give 3 angles, 5 keywords (avoid these already used: ${project.keywords.map((k) => sp(k)).join(", ") || "none"}), 3 video formats, 3 actionable tips.
-Title: ${sp(project.title)}
-Niche: ${sp(project.niche)}`
-            )}>{L["analyze"] ? "✦ Analyzing…" : "✦ Analyze"}</Btn>
-            {L["analyze"] && <Btn sm color="gray" onClick={() => cancel("analyze")}>■ Stop</Btn>}
-          </div>
-          {O["analyze"] && <AnalyzeOutput output={O["analyze"]} project={project} update={update} />}
+          <TInput value={project.niche} onChange={(v) => update("niche", v)} placeholder="e.g., Backpacking, Tech Reviews…" />
         </Fld>
         {project.contentType === "short" ? (
           <Fld label="Target Duration (seconds)" mt={12}>
@@ -537,7 +447,6 @@ Niche: ${sp(project.niche)}`
       </Card>
       <Card title="Keywords" icon="🏷️">
         <KwInput keywords={project.keywords} onChange={(v) => update("keywords", v)} />
-        <AIOut k="kw" label="Suggest Keywords" loading={L} output={O} onRun={() => run("kw", "YouTube SEO expert. Return only comma-separated keywords.", `10 keywords for: ${sp(project.title)} / ${sp(project.niche)}`)} onUse={(t) => update("keywords", [...project.keywords, ...t.split(",").map((k) => k.trim()).filter(Boolean)])} onStop={() => cancel("kw")} />
       </Card>
       <Card title="Competitor Videos" icon="👁️">
         {project.competitors.map((c, i) => (
@@ -576,20 +485,8 @@ Niche: ${sp(project.niche)}`
 }
 
 /* ── Tab: Thumbnail ── */
-function ThumbnailTab({ project, update, presets }) {
-  const [L, setL] = useState({});
-  const [O, setO] = useState({});
+function ThumbnailTab({ project, update }) {
   const fileRef = useRef();
-  const abortRef = useRef(null);
-  function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
-  async function run(k, sys, usr) {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setL((l) => ({ ...l, [k]: true }));
-    try { const r = await ai(sys + pCtx(presets), usr, 1500, abortRef.current.signal); setO((o) => ({ ...o, [k]: r })); }
-    catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
-    setL((l) => ({ ...l, [k]: false }));
-  }
   function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
   const competitorThumbs = (project.competitors || []).filter((c) => c.thumbnail);
   return (
@@ -627,41 +524,14 @@ function ThumbnailTab({ project, update, presets }) {
       )}
       <Card title="Concept Planning" icon="💡">
         <Fld label="Concept Description"><TArea value={project.thumbnailConcept} onChange={(v) => update("thumbnailConcept", v)} rows={3} placeholder="Describe your thumbnail idea…" /></Fld>
-        <AIOut k="concept" label="Generate Concepts" loading={L} output={O} onRun={() => run("concept", "YouTube thumbnail design expert. Understand click psychology.", `3 thumbnail concepts for:\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}`)} onUse={(t) => update("thumbnailConcept", t)} onStop={() => cancel("concept")} />
       </Card>
       <Card title="Text Hook / Overlay" icon="💬">
         <Fld label="Hook Text"><TInput value={project.thumbnailHook} onChange={(v) => update("thumbnailHook", v)} placeholder="e.g., 'I WAS WRONG', 'Never Do This'" /></Fld>
-        <AIOut k="hooks" label="Generate Hooks" loading={L} output={O} onRun={() => run("hooks", "YouTube CTR expert.", `5 thumbnail text hooks (1-5 words) for:\nTitle: ${sp(project.title)}`)} onUse={(t) => update("thumbnailHook", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("hooks")} />
       </Card>
     </div>
   );
 }
 
-/* ── Outline helpers ── */
-function parseSectionsFromAI(text) {
-  // AI is asked to return JSON array; fall back to a single section if parsing fails
-  try {
-    const m = text.match(/\[[\s\S]*\]/);
-    if (m) {
-      const arr = JSON.parse(m[0]);
-      if (Array.isArray(arr) && arr.length) {
-        return arr.map((s) => ({ id: crypto.randomUUID(), name: s.name || 'Section', duration: s.duration || '', notes: s.notes || '' }));
-      }
-    }
-  } catch { /* fall through */ }
-  // Fallback: parse markdown headers like "## Intro (2 minutes)"
-  const sections = [];
-  let cur = null;
-  const buf = [];
-  const flush = () => { if (cur) { sections.push({ ...cur, notes: buf.join('\n').trim() }); buf.length = 0; } };
-  for (const line of text.split('\n')) {
-    const hm = line.match(/^#{1,3}\s+(.+?)\s*[\(\-–]\s*([^)\n]+?)\)?\s*$/);
-    if (hm) { flush(); cur = { id: crypto.randomUUID(), name: hm[1].trim(), duration: hm[2].trim() }; continue; }
-    if (cur) buf.push(line);
-  }
-  flush();
-  return sections.length ? sections : [{ id: '1', name: 'Outline', duration: '', notes: text.trim() }];
-}
 
 function calcTotalMins(sections) {
   let total = 0;
@@ -675,90 +545,14 @@ function calcTotalMins(sections) {
 const inputStyle = { border: '1px solid #334155', borderRadius: 8, padding: '8px 12px', fontSize: 14, background: '#0f172a', color: '#ffffff', outline: 'none', boxSizing: 'border-box' };
 
 /* ── Tab: Script ── */
-/* ── Analyze Output — structured cards from AI JSON ── */
-function AnalyzeOutput({ output, project, update }) {
-  let data = null;
-  try {
-    const m = output.match(/\{[\s\S]*\}/);
-    if (m) data = JSON.parse(m[0]);
-  } catch { /* fall through to raw text */ }
-
-  if (!data) {
-    return (
-      <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
-        <p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{output}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-      {data.angles?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>CONTENT ANGLES</div>
-          {data.angles.map((a, i) => (
-            <div key={i} style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0", lineHeight: 1.3 }}>{a.title}</span>
-                <Btn sm onClick={() => update("title", a.title)} style={{ flexShrink: 0 }}>Use title</Btn>
-              </div>
-              {a.hook && <p style={{ fontSize: 12, color: "#60a5fa", margin: "0 0 4px", fontStyle: "italic" }}>🎣 {a.hook}</p>}
-              {a.why && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{a.why}</p>}
-            </div>
-          ))}
-        </div>
-      )}
-      {data.keywords?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>SUGGESTED KEYWORDS</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {data.keywords.map((kw, i) => {
-              const has = project.keywords.includes(kw);
-              return (
-                <button key={i} disabled={has} onClick={() => update("keywords", [...project.keywords, kw])}
-                  style={{ background: has ? "#1e293b" : "#1e3a5f", color: has ? "#64748b" : "#93c5fd", border: `1px solid ${has ? "#334155" : "#3b82f6"}`, borderRadius: 20, padding: "4px 12px", fontSize: 12, cursor: has ? "default" : "pointer", fontWeight: 600 }}>
-                  {has ? "✓ " : "+ "}{kw}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {data.formats?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>VIDEO FORMATS</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {data.formats.map((f, i) => (
-              <span key={i} style={{ background: "#1e1b4b", color: "#a5b4fc", padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500 }}>{f}</span>
-            ))}
-          </div>
-        </div>
-      )}
-      {data.tips?.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#93c5fd", letterSpacing: "0.08em", marginBottom: 8 }}>TIPS</div>
-          {data.tips.map((t, i) => (
-            <div key={i} style={{ display: "flex", gap: 10, marginBottom: 7, alignItems: "flex-start" }}>
-              <span style={{ color: "#3b82f6", fontWeight: 700, fontSize: 16, lineHeight: 1.2, flexShrink: 0 }}>·</span>
-              <span style={{ fontSize: 13, color: "#94a3b8", lineHeight: 1.5 }}>{t}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function toDocPreviewUrl(url) {
   if (!url) return "";
   // Convert any Google Doc URL variant to /preview for embedding
   return url.replace(/\/(edit|view|pub)(\?.*)?$/, "/preview");
 }
 
-function ScriptTab({ project, update, presets }) {
+function ScriptTab({ project, update }) {
   const isMobile = useIsMobile();
-  const [L, setL] = useState({});
-  const [O, setO] = useState({});
   const [showEmbed, setShowEmbed] = useState(false);
   const [showDocContent, setShowDocContent] = useState(false);
   const [docInput, setDocInput] = useState("");
@@ -798,34 +592,7 @@ function ScriptTab({ project, update, presets }) {
   const [newSec, setNewSec] = useState({ name: '', duration: '' });
   const isShort = project.contentType === "short";
   const vidLen = project.videoLength || (isShort ? 30 : 10);
-  // Short form: ~2.5 words/sec spoken fast; long form: 150 words/min
-  const estWords = isShort ? Math.round(vidLen * 2.5) : vidLen * 150;
   const sections = project.outlineSections || [];
-  const [P, setP] = useState({
-    tone: "Conversational", style: "Storytelling", audience: "", words: estWords, broll: true, timestamps: true,
-    intro: presets.find((p) => p.type === "Intro")?.content || "",
-    banned: presets.find((p) => p.type === "Avoid")?.content || "",
-    extra: "",
-  });
-  useEffect(() => { setP((p) => ({ ...p, words: isShort ? Math.round(vidLen * 2.5) : vidLen * 150 })); }, [vidLen, isShort]);
-  // Sync preset intro/banned into script params whenever presets change (fills blanks only)
-  useEffect(() => {
-    setP((p) => ({
-      ...p,
-      intro: p.intro || presets.find((pr) => pr.type === "Intro")?.content || "",
-      banned: p.banned || presets.find((pr) => pr.type === "Avoid")?.content || "",
-    }));
-  }, [presets]);
-  const abortRef = useRef(null);
-  function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
-  async function run(k, sys, usr, tok = 1500) {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setL((l) => ({ ...l, [k]: true }));
-    try { const r = await ai(sys + pCtx(presets), usr, tok, abortRef.current.signal); setO((o) => ({ ...o, [k]: r })); }
-    catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
-    setL((l) => ({ ...l, [k]: false }));
-  }
   function addSection() {
     if (!newSec.name.trim()) return;
     update("outlineSections", [...sections, { id: crypto.randomUUID(), name: newSec.name, duration: newSec.duration, notes: '' }]);
@@ -833,39 +600,9 @@ function ScriptTab({ project, update, presets }) {
   }
   function deleteSection(id) { update("outlineSections", sections.filter((s) => s.id !== id)); }
   function updateSection(id, field, val) { update("outlineSections", sections.map((s) => s.id === id ? { ...s, [field]: val } : s)); }
-  function prompt() {
-    const hookPart = project.outlineHook ? `Hook (30s):\n${project.outlineHook}\n\n` : '';
-    const sectionsPart = sections.map((s) => `${s.name}${s.duration ? ` (${s.duration})` : ''}:\n${s.notes}`).join('\n\n');
-    const outlineText = hookPart + sectionsPart || project.scriptOutline || "(none)";
-    const formatLine = isShort
-      ? `Format: YouTube Short / vertical short-form video (~${vidLen} seconds, ~${estWords} words). Keep it punchy, fast-paced, hook in first 2 seconds.`
-      : `Format: Long-form YouTube video (~${vidLen} minutes, ~${estWords} words)`;
-    return `Write a full script.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n${formatLine}\nOutline:\n${outlineText}\nCTA: ${sp(project.cta)}\n\nTone: ${P.tone}\nStyle: ${P.style}\nAudience: ${sp(P.audience) || "general"}\nWords: ~${P.words}\n${!isShort && P.broll ? "Include [B-ROLL] cues" : ""}\n${!isShort && P.timestamps ? "Include [TIMESTAMP] markers" : ""}\n${P.intro ? `Open ALWAYS with: "${sp(P.intro, 500)}"` : ""}${P.banned ? `\nNEVER use: ${sp(P.banned, 500)}` : ""}\n${P.extra ? `Extra: ${sp(P.extra, 500)}` : ""}`;
-  }
   const totalMins = calcTotalMins(sections);
-  const sel = (val, opts, fn) => <select value={val} onChange={(e) => fn(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, background: "#0f172a", color: "#ffffff" }}>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <Card title="Script Parameters" icon="⚙️">
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
-          <Fld label="Tone">{sel(P.tone, ["Conversational","Educational","Entertaining","Motivational","Casual","Professional"], (v) => setP((p) => ({ ...p, tone: v })))}</Fld>
-          <Fld label="Style">{sel(P.style, ["Storytelling","How-To","List","Personal Essay","News Style"], (v) => setP((p) => ({ ...p, style: v })))}</Fld>
-          <Fld label="Target Audience"><TInput value={P.audience} onChange={(v) => setP((p) => ({ ...p, audience: v }))} placeholder="e.g., beginner hikers 25-40" /></Fld>
-          <Fld label={`Word Count: ~${P.words.toLocaleString()}`}>
-            <input type="range" min={isShort ? 30 : 500} max={isShort ? 200 : 5000} step={isShort ? 10 : 250} value={P.words} onChange={(e) => setP((p) => ({ ...p, words: +e.target.value }))} style={{ width: "100%", accentColor: isShort ? "#a855f7" : "#2563eb", marginTop: 8 }} />
-          </Fld>
-        </div>
-        <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
-          {[["broll","B-Roll cues"],["timestamps","Timestamps"]].map(([k, lbl]) => (
-            <label key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-              <input type="checkbox" checked={P[k]} onChange={(e) => setP((p) => ({ ...p, [k]: e.target.checked }))} style={{ accentColor: "#2563eb" }} />{lbl}
-            </label>
-          ))}
-        </div>
-        <Fld label="Intro Template" mt={12}><TInput value={P.intro} onChange={(v) => setP((p) => ({ ...p, intro: v }))} placeholder="e.g., Hey I'm Backpacker Luke, and today…" /></Fld>
-        <Fld label="Banned Words" mt={12}><TInput value={P.banned} onChange={(v) => setP((p) => ({ ...p, banned: v }))} placeholder="e.g., absolutely, amazing, game-changer" /></Fld>
-        <Fld label="Extra Instructions" mt={12}><TArea value={P.extra} onChange={(v) => setP((p) => ({ ...p, extra: v }))} rows={2} placeholder="Any other guidance…" /></Fld>
-      </Card>
       <Card title="Linked Document" icon="📄">
         {/* ── URL section ── */}
         {!project.scriptDocUrl ? (
@@ -941,59 +678,13 @@ function ScriptTab({ project, update, presets }) {
           <input value={newSec.duration} onChange={(e) => setNewSec((p) => ({ ...p, duration: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addSection()} placeholder="Duration (e.g., 3 min)" style={{ ...inputStyle, width: isMobile ? "100%" : 150 }} />
         </div>
         <button onClick={addSection} style={{ width: "100%", marginTop: 8, padding: "9px 0", background: "#0f172a", border: "1px dashed #334155", borderRadius: 8, color: "#64748b", fontSize: 13, cursor: "pointer" }}>+ Add Section</button>
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <Btn sm disabled={L["outline"]} onClick={() => run("outline",
-              `Expert YouTube scriptwriter. Return ONLY a valid JSON array (no markdown, no explanation) where each element has: "name" (section name), "duration" (e.g. "2 minutes"), "notes" (key bullet points as a string). The first item should NOT be the hook — that is handled separately. Structure sections for a ${vidLen}-minute video.`,
-              `Create a script outline for a ${vidLen}-minute YouTube video.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n\nReturn a JSON array of sections (excluding the hook). Each section needs name, duration, and notes. Durations must add up to roughly ${vidLen} minutes. Include intro, main content sections, and outro.`
-            )}>{L["outline"] ? "✦ Generating…" : "✦ Generate Outline"}</Btn>
-            {L["outline"] && <Btn sm color="gray" onClick={() => cancel("outline")}>■ Stop</Btn>}
-          </div>
-          {O["outline"] && (() => {
-            const parsed = parseSectionsFromAI(O["outline"]);
-            const isFallback = parsed.length === 1 && parsed[0].name === "Outline";
-            return (
-              <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ AI Suggested Outline</span>
-                  <Btn sm onClick={() => update("outlineSections", parsed)}>Use this outline</Btn>
-                </div>
-                {isFallback ? (
-                  <p style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7 }}>{O["outline"]}</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {parsed.map((s, i) => (
-                      <div key={i} style={{ background: "#0a1628", borderRadius: 8, padding: "10px 12px", borderLeft: "3px solid #3b82f6" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: s.notes ? 5 : 0 }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: "#e2e8f0" }}>{s.name}</span>
-                          {s.duration && <span style={{ fontSize: 11, color: "#60a5fa", background: "#1e3a5f", padding: "2px 8px", borderRadius: 10, flexShrink: 0 }}>{s.duration}</span>}
-                        </div>
-                        {s.notes && <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{s.notes}</p>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
         <div style={{ borderTop: "1px solid #1e293b", marginTop: 16, paddingTop: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>📣 CALL TO ACTION</div>
           <TInput value={project.cta} onChange={(v) => update("cta", v)} placeholder="Your CTA… e.g., Subscribe and check out my next video on…" />
-          <AIOut k="cta" label="Write CTA" loading={L} output={O} onRun={() => run("cta", "YouTube growth expert. Natural CTAs only.", `3 CTAs for: ${sp(project.title)}`)} onUse={(t) => update("cta", t.split("\n").find((l) => l.trim()) || "")} onStop={() => cancel("cta")} />
         </div>
       </Card>
-      <Card title="Full Script" icon="📝" action={<div style={{ display: "flex", gap: 6 }}><Btn sm onClick={() => run("script", "Expert YouTube scriptwriter. Write complete production-ready scripts.", prompt(), 3000)} disabled={L["script"]}>{L["script"] ? "✦ Writing…" : isMobile ? "✦ Generate" : "✦ Auto-Generate Script"}</Btn>{L["script"] && <Btn sm color="gray" onClick={() => cancel("script")}>■ Stop</Btn>}</div>}>
-        <TArea value={project.scriptBody} onChange={(v) => update("scriptBody", v)} rows={14} placeholder="Type or auto-generate your script…" style={{ fontFamily: "'Courier New',monospace", fontSize: 13 }} />
-        {O["script"] && (
-          <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 14, marginTop: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ Generated Script</span>
-              <Btn sm onClick={() => update("scriptBody", O["script"])}>Use this</Btn>
-            </div>
-            <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7, maxHeight: 280, overflowY: "auto" }}>{O["script"]}</pre>
-          </div>
-        )}
+      <Card title="Full Script" icon="📝">
+        <TArea value={project.scriptBody} onChange={(v) => update("scriptBody", v)} rows={14} placeholder="Write your script here…" style={{ fontFamily: "'Courier New',monospace", fontSize: 13 }} />
       </Card>
     </div>
   );
@@ -1044,26 +735,14 @@ function FilmingTab({ project, update }) {
 }
 
 /* ── Tab: Finish ── */
-function FinishTab({ project, update, presets }) {
+function FinishTab({ project, update }) {
   const isMobile = useIsMobile();
-  const [L, setL] = useState({});
-  const [O, setO] = useState({});
   const [checks, setChecks] = useState(Array(7).fill(false));
   const [justPublished, setJustPublished] = useState(false);
   function markPublished() {
     update("stage", "Published");
     setJustPublished(true);
     setTimeout(() => setJustPublished(false), 2000);
-  }
-  const abortRef = useRef(null);
-  function cancel(k) { abortRef.current?.abort(); setL((l) => ({ ...l, [k]: false })); }
-  async function run(k, sys, usr, tok = 1200) {
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setL((l) => ({ ...l, [k]: true }));
-    try { const r = await ai(sys + pCtx(presets), usr, tok, abortRef.current.signal); setO((o) => ({ ...o, [k]: r })); }
-    catch (e) { if (e.name !== "AbortError") setO((o) => ({ ...o, [k]: "Error." })); }
-    setL((l) => ({ ...l, [k]: false }));
   }
   const items = ["Script written & reviewed","Thumbnail created & uploaded","Keywords/tags finalized","Description written","End screen set up","Cards added","Scheduled / published"];
   const titleOptions = [...new Set([project.title, ...(project.metaTitles || [])].filter(Boolean))];
@@ -1086,7 +765,7 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
       </Card>
-      <Card title="Video Titles" icon="🏷️" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["titles"]} onClick={() => run("titles", "YouTube title expert. Return exactly 3 titles, one per line, no numbering. Include the original working title as the first option.", `3 clickable titles:\nWorking: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\n\nIMPORTANT: The first title should be a polished version of the working title "${sp(project.title)}".`)}>{L["titles"] ? "✦ Generating…" : "✦ Generate Titles"}</Btn>{L["titles"] && <Btn sm color="gray" onClick={() => cancel("titles")}>■ Stop</Btn>}</div>}>
+      <Card title="Video Titles" icon="🏷️">
         {titleOptions.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
             {titleOptions.map((t, i) => (
@@ -1099,29 +778,11 @@ function FinishTab({ project, update, presets }) {
           </div>
         )}
         <TInput value={project.title} onChange={(v) => update("title", v)} placeholder="Final title" />
-        {O["titles"] && (
-          <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginTop: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ Suggestions</span>
-              <Btn sm onClick={() => update("metaTitles", O["titles"].split("\n").filter((l) => l.trim()))}>Use these</Btn>
-            </div>
-            <pre style={{ fontSize: 13, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap" }}>{O["titles"]}</pre>
-          </div>
-        )}
       </Card>
-      <Card title="Description" icon="📄" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["desc"]} onClick={() => run("desc", "YouTube SEO and description expert.", `Full YT description with timestamps, keywords, links, CTA.\nTitle: ${sp(project.title)}\nNiche: ${sp(project.niche)}\nKeywords: ${project.keywords.map((k) => sp(k)).join(", ")}\nCTA: ${sp(project.cta)}\nVideo Length: ${project.videoLength || 10} minutes\nOutline: ${(project.outlineSections || []).map(s => `${sp(s.name)}: ${sp(s.notes)}`).join(' | ').slice(0, 400)}`, 1200)}>{L["desc"] ? "✦ Generating…" : isMobile ? "✦ Write" : "✦ Auto-Write Description"}</Btn>{L["desc"] && <Btn sm color="gray" onClick={() => cancel("desc")}>■ Stop</Btn>}</div>}>
+      <Card title="Description" icon="📄">
         <TArea value={project.metaDescription} onChange={(v) => update("metaDescription", v)} rows={6} placeholder="Your YouTube description…" />
-        {O["desc"] && (
-          <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 12, marginTop: 8 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ Generated</span>
-              <Btn sm onClick={() => update("metaDescription", O["desc"])}>Use this</Btn>
-            </div>
-            <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.7, maxHeight: 240, overflowY: "auto" }}>{O["desc"]}</pre>
-          </div>
-        )}
       </Card>
-      <Card title="Tags" icon="🔖" action={<div style={{ display: "flex", gap: 6 }}><Btn sm disabled={L["tags"]} onClick={() => run("tags", "YouTube SEO expert. Return only comma-separated tags, no numbering.", `15-20 tags for: ${sp(project.title)} / ${sp(project.niche)} / keywords: ${project.keywords.map((k) => sp(k)).join(", ")}`)}>{L["tags"] ? "✦ Generating…" : "✦ Generate Tags"}</Btn>{L["tags"] && <Btn sm color="gray" onClick={() => cancel("tags")}>■ Stop</Btn>}</div>}>
+      <Card title="Tags" icon="🔖">
         {project.metaTags?.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
             {project.metaTags.map((t, i) => (
@@ -1129,15 +790,6 @@ function FinishTab({ project, update, presets }) {
                 {t}<button onClick={() => update("metaTags", project.metaTags.filter((_, j) => j !== i))} aria-label={`Remove tag ${t}`} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 13 }}>×</button>
               </span>
             ))}
-          </div>
-        )}
-        {O["tags"] && (
-          <div style={{ background: "#0f1e3d", border: "1px solid #1e3a8a", borderRadius: 10, padding: 10, marginTop: 6 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd" }}>✦ Tags</span>
-              <Btn sm onClick={() => update("metaTags", O["tags"].split(",").map((t) => t.trim()).filter(Boolean))}>Use all</Btn>
-            </div>
-            <p style={{ fontSize: 12, color: "#cbd5e1", margin: 0 }}>{O["tags"]}</p>
           </div>
         )}
       </Card>
@@ -1164,7 +816,7 @@ function FinishTab({ project, update, presets }) {
 }
 
 /* ── Project Page ── */
-function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
+function ProjectPage({ project, onUpdate, onBack, onDelete }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(0);
   const TABS = [{ label: "Research", icon: "🔍" }, { label: "Thumbnail", icon: "🖼️" }, { label: "Script", icon: "📝" }, { label: "Filming", icon: "🎬" }, { label: "Finish", icon: "🚀" }];
@@ -1201,11 +853,11 @@ function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
             ))}
           </div>
           <div style={{ padding: "16px 14px 80px" }}>
-            {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
-            {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
-            {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
+            {tab === 0 && <ResearchTab project={project} update={update} />}
+            {tab === 1 && <ThumbnailTab project={project} update={update} />}
+            {tab === 2 && <ScriptTab project={project} update={update} />}
             {tab === 3 && <FilmingTab project={project} update={update} />}
-            {tab === 4 && <FinishTab project={project} update={update} presets={presets} />}
+            {tab === 4 && <FinishTab project={project} update={update} />}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 28, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
               <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 20px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 13, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
               <span style={{ fontSize: 12, color: "#475569" }}>{tab + 1} / {TABS.length}</span>
@@ -1229,11 +881,11 @@ function ProjectPage({ project, onUpdate, onBack, onDelete, presets }) {
             </button>
           </div>
           <div style={{ flex: 1, padding: "32px 40px", minWidth: 0, maxWidth: 1100 }}>
-            {tab === 0 && <ResearchTab project={project} update={update} presets={presets} />}
-            {tab === 1 && <ThumbnailTab project={project} update={update} presets={presets} />}
-            {tab === 2 && <ScriptTab project={project} update={update} presets={presets} />}
+            {tab === 0 && <ResearchTab project={project} update={update} />}
+            {tab === 1 && <ThumbnailTab project={project} update={update} />}
+            {tab === 2 && <ScriptTab project={project} update={update} />}
             {tab === 3 && <FilmingTab project={project} update={update} />}
-            {tab === 4 && <FinishTab project={project} update={update} presets={presets} />}
+            {tab === 4 && <FinishTab project={project} update={update} />}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 36, paddingTop: 20, borderTop: "1px solid #1e293b" }}>
               <button onClick={() => setTab((t) => Math.max(0, t - 1))} disabled={tab === 0} style={{ background: tab === 0 ? "transparent" : "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 24px", color: tab === 0 ? "#334155" : "#94a3b8", fontSize: 14, fontWeight: 600, cursor: tab === 0 ? "default" : "pointer" }}>← Previous</button>
               <span style={{ fontSize: 12, color: "#475569" }}>{TABS[tab].icon} {TABS[tab].label} · {tab + 1} / {TABS.length}</span>
@@ -1301,58 +953,9 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
-  const [L, setL] = useState({});
-  const [genErr, setGenErr] = useState("");
   const [deleteIdeaId, setDeleteIdeaId] = useState(null);
-  const [showPrompt, setShowPrompt] = useState(false);
-  const [subject, setSubject] = useState("");
   const [promotePending, setPromotePending] = useState(null);
   const [visibleCount, setVisibleCount] = useState(5);
-  const abortRef = useRef(null);
-  function cancelGen() { abortRef.current?.abort(); setL((l) => ({ ...l, gen: false })); }
-
-  async function aiIdeas(topic) {
-    setShowPrompt(false);
-    setGenErr("");
-    abortRef.current?.abort();
-    abortRef.current = new AbortController();
-    setL((l) => ({ ...l, gen: true }));
-    try {
-      const raw = await ai(
-        `You are a YouTube content strategist. You ONLY generate ideas strictly about the topic the user gives you. Every single idea must be directly about that topic — no tangents, no generic ideas. Return ONLY a valid JSON array, no markdown, no explanation.`,
-        `Generate 5 YouTube video ideas. Every idea MUST be specifically about: "${sp(topic)}". Do not stray from this topic for any of the 5 ideas.\n\nReturn a JSON array of exactly 5 objects, each with: title (specific catchy video title about ${sp(topic)}), notes (1-2 sentence description explaining the angle), priority (one of: "💡 Idea", "⭐ High Priority", "🔥 Hot Topic"), tags (array of 2-3 short tags related to ${sp(topic)}).`,
-        1500,
-        abortRef.current.signal
-      );
-      let parsed;
-      try {
-        parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      } catch {
-        setGenErr("AI returned unexpected data — please try again.");
-        setL((l) => ({ ...l, gen: false }));
-        return;
-      }
-      if (Array.isArray(parsed)) {
-        const newIdeas = parsed.map((idea) => ({
-          ...blankIdea(),
-          id: crypto.randomUUID(),
-          title: idea.title || "",
-          notes: idea.notes || "",
-          priority: idea.priority || "💡 Idea",
-          tags: Array.isArray(idea.tags) ? idea.tags : [],
-        }));
-        const updated = [...newIdeas, ...ideas];
-        setIdeas(updated);
-        saveIdeas(updated);
-        setVisibleCount(5);
-      } else {
-        setGenErr("AI returned unexpected data — please try again.");
-      }
-    } catch (e) {
-      if (e.name !== "AbortError") setGenErr("Idea generation failed — check your connection and try again.");
-    }
-    setL((l) => ({ ...l, gen: false }));
-  }
 
   function addIdea() {
     const idea = blankIdea();
@@ -1419,29 +1022,9 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
           <p style={{ color: "#94a3b8", margin: "3px 0 0", fontSize: 13 }}>{ideas.length} ideas saved · drag to reorder</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <Btn onClick={() => { setSubject(""); setShowPrompt(true); }} disabled={L.gen} sm={isMobile}>{L.gen ? "✦ Generating…" : "✦ AI Ideas"}</Btn>
-          {L.gen && <Btn color="gray" onClick={cancelGen} sm={isMobile}>■ Stop</Btn>}
           <Btn onClick={addIdea} sm={isMobile}>+ New Idea</Btn>
         </div>
       </div>
-
-      {genErr && <p style={{ color: "#f87171", fontSize: 13, margin: "0 0 16px" }}>⚠ {genErr}</p>}
-      {showPrompt && (
-        <div style={{ background: "#1e293b", border: "1px solid #3b82f6", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#93c5fd", marginBottom: 10 }}>✦ What topic should these 5 ideas be about?</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <TInput
-              value={subject}
-              onChange={setSubject}
-              placeholder="e.g., backpacking gear, budget travel, camera reviews…"
-              style={{ flex: 1 }}
-              onKeyDown={(e) => { if (e.key === "Enter" && subject.trim()) aiIdeas(subject.trim()); if (e.key === "Escape") setShowPrompt(false); }}
-            />
-            <Btn onClick={() => subject.trim() && aiIdeas(subject.trim())}>Generate</Btn>
-            <Btn color="gray" onClick={() => setShowPrompt(false)}>Cancel</Btn>
-          </div>
-        </div>
-      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <TInput value={search} onChange={setSearch} placeholder="Search ideas…" style={{ width: isMobile ? "100%" : 220 }} />
@@ -1453,7 +1036,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
         <div style={{ textAlign: "center", padding: "50px 0", color: "#64748b" }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>💡</div>
           <p style={{ fontSize: 15, fontWeight: 600, color: "#94a3b8" }}>{ideas.length === 0 ? "No ideas yet" : "No matching ideas"}</p>
-          <p style={{ fontSize: 13 }}>{ideas.length === 0 ? "Add an idea or let AI generate some" : "Try a different filter"}</p>
+          <p style={{ fontSize: 13 }}>{ideas.length === 0 ? "Click \"+ New Idea\" to add your first idea" : "Try a different filter"}</p>
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1497,17 +1080,11 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
       </div>
 
       {/* Footer: show more or generate more */}
-      {filtered.length > 0 && (
+      {filtered.length > visibleCount && (
         <div style={{ textAlign: "center", marginTop: 20 }}>
-          {visibleCount < filtered.length ? (
-            <button onClick={() => setVisibleCount((v) => v + 5)} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 24px", cursor: "pointer", fontSize: 13, color: "#94a3b8", fontFamily: "Sora,sans-serif" }}>
-              Show 5 More ({filtered.length - visibleCount} hidden)
-            </button>
-          ) : (
-            <button onClick={() => { setSubject(""); setShowPrompt(true); }} disabled={L.gen} style={{ background: "#1e3a5f", border: "1px solid #3b82f6", borderRadius: 10, padding: "10px 24px", cursor: L.gen ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: "#93c5fd", fontFamily: "Sora,sans-serif" }}>
-              {L.gen ? "✦ Generating…" : "✦ Generate 5 More"}
-            </button>
-          )}
+          <button onClick={() => setVisibleCount((v) => v + 5)} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 24px", cursor: "pointer", fontSize: 13, color: "#94a3b8", fontFamily: "Sora,sans-serif" }}>
+            Show 5 More ({filtered.length - visibleCount} hidden)
+          </button>
         </div>
       )}
     </div>
@@ -1895,99 +1472,6 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
   );
 }
 
-/* ── Presets Page ── */
-function PresetsPage({ presets, setPresets }) {
-  const isMobile = useIsMobile();
-  const [type, setType] = useState("Custom");
-  const [label, setLabel] = useState("");
-  const [content, setContent] = useState("");
-  const [savedMsg, setSavedMsg] = useState("");
-  const TYPES = [{ id: "Intro", lbl: "Intro Template" },{ id: "Outro", lbl: "Outro Template" },{ id: "Tone", lbl: "Tone / Style" },{ id: "Avoid", lbl: "Banned Words" },{ id: "CTA", lbl: "CTA Template" },{ id: "Niche", lbl: "Niche Context" },{ id: "Custom", lbl: "Custom Instruction" }];
-  async function save() {
-    if (!label.trim() || !content.trim()) return;
-    const u = [...presets, { id: crypto.randomUUID(), type, label, content }];
-    setPresets(u);
-    await savePresets(u);
-    const confirmations = {
-      Intro: `Understood! Every script will open with: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
-      Outro: `Got it! Scripts will close with your outro template.`,
-      Tone: `Got it! I'll write in this style: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
-      Avoid: `Got it! I'll never use these words/phrases: ${content.slice(0, 100)}${content.length > 100 ? "…" : ""}`,
-      CTA: `Got it! I'll use this CTA: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
-      Niche: `Got it! I understand your niche context and will factor it into all AI suggestions.`,
-      Custom: `Got it! I'll always follow this instruction: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
-    };
-    setSavedMsg(confirmations[type] || `Preset "${label}" saved.`);
-    setLabel(""); setContent("");
-    setTimeout(() => setSavedMsg(""), 7000);
-  }
-  async function del(id) { const u = presets.filter((p) => p.id !== id); setPresets(u); await savePresets(u); }
-  const EX = [
-    { type: "Intro", label: "My Intro", content: "Hey I'm Backpacker Luke, and today we're talking about" },
-    { type: "Avoid", label: "No Filler Words", content: "absolutely, amazing, game-changer, leverage, dive into, delve into" },
-    { type: "Tone", label: "Casual & Real", content: "Write like I'm talking to a friend. Casual, energetic, authentic. No corporate speak." },
-    { type: "CTA", label: "Subscribe CTA", content: "If you found this helpful, hit subscribe and the bell so you never miss a video." },
-  ];
-  return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: isMobile ? "16px 14px 80px" : "32px 40px" }}>
-      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: isMobile ? 20 : 26, fontWeight: 700, margin: "0 0 3px", color: "#ffffff" }}>Creator Presets</h1>
-      <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 24px" }}>Persistent rules and templates applied to all AI-generated content</p>
-      <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 22, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 14px" }}>✦ Add New Preset</h2>
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>TYPE</div>
-            <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: "100%", border: "1px solid #334155", borderRadius: 8, padding: "7px 10px", fontSize: 13, background: "#1a2234", color: "#ffffff" }}>
-              {TYPES.map((t) => <option key={t.id} value={t.id}>{t.lbl}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>LABEL</div>
-            <TInput value={label} onChange={setLabel} placeholder="Short name" />
-          </div>
-        </div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4 }}>CONTENT</div>
-        <TArea value={content} onChange={setContent} rows={3} placeholder="Enter instructions…" />
-        <Btn onClick={save} style={{ marginTop: 10 }}>+ Save Preset</Btn>
-        {savedMsg && (
-          <div style={{ marginTop: 12, background: "#052e16", border: "1px solid #22c55e", borderRadius: 10, padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <span style={{ fontSize: 16, flexShrink: 0 }}>✓</span>
-            <p style={{ fontSize: 13, color: "#4ade80", margin: 0, lineHeight: 1.5 }}>{savedMsg}</p>
-          </div>
-        )}
-      </div>
-      <div style={{ background: "#0f1e3d", borderRadius: 12, border: "1px solid #1e3a8a", padding: 14, marginBottom: 16 }}>
-        <p style={{ fontSize: 12, fontWeight: 600, color: "#93c5fd", margin: "0 0 8px" }}>💡 Quick examples</p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {EX.map((ex, i) => (
-            <button key={i} onClick={() => { setType(ex.type); setLabel(ex.label); setContent(ex.content); }} style={{ background: "#1e293b", border: "1px solid #1e3a8a", borderRadius: 7, padding: "4px 10px", cursor: "pointer", fontSize: 11, color: "#93c5fd", fontWeight: 500 }}>+ {ex.label}</button>
-          ))}
-        </div>
-      </div>
-      {presets.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "40px 0", color: "#64748b" }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>⚙️</div><p>No presets yet.</p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {presets.map((p) => (
-            <div key={p.id} style={{ background: "#1e293b", borderRadius: 12, border: "1px solid #334155", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, background: "#1e3a5f", color: "#93c5fd", padding: "2px 7px", borderRadius: 20 }}>{TYPES.find((t) => t.id === p.type)?.lbl || p.type}</span>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{p.label}</span>
-                </div>
-                <p style={{ fontSize: 12, color: "#94a3b8", margin: 0, whiteSpace: "pre-wrap" }}>{p.content}</p>
-              </div>
-              <button onClick={() => del(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 17, padding: "0 0 0 10px", flexShrink: 0 }}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ── Account Page ── */
 function SettingsPage({ user }) {
   const isMobile = useIsMobile();
@@ -2068,7 +1552,6 @@ export default function App() {
   const isMobile = useIsMobile();
   const [page, setPage] = useState("Home");
   const [projects, setProjects] = useState([]);
-  const [presets, setPresets] = useState([]);
   const [ideas, setIdeas] = useState([]);
   const [editId, setEditId] = useState(null);
   const [ready, setReady] = useState(false);
@@ -2083,10 +1566,9 @@ export default function App() {
         _currentUid = u.uid;
         // Sync cloud data
         try {
-          const [cloudData, localP, localPr, localId, localPts] = await Promise.all([
+          const [cloudData, localP, localId, localPts] = await Promise.all([
             loadUserData(u.uid),
             stor("get", SK.PROJECTS),
-            stor("get", SK.PRESETS),
             stor("get", SK.IDEAS),
             stor("get", SK.PROJECTS_TS),
           ]);
@@ -2103,14 +1585,11 @@ export default function App() {
               // Cloud is newer (or equal) — use it
               const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
               const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
-              const pr = Array.isArray(cloudData.presets)  ? cloudData.presets  : [];
               setProjects(p);
               setIdeas(id);
-              setPresets(pr);
               await Promise.all([
                 stor("set", SK.PROJECTS, p),
                 stor("set", SK.IDEAS,    id),
-                stor("set", SK.PRESETS,  pr),
               ]);
             }
           } else {
@@ -2120,7 +1599,6 @@ export default function App() {
             await saveAllUserData(u.uid, {
               projects:        Array.isArray(localP)  ? localP  : [],
               ideas:           Array.isArray(localId) ? localId : [],
-              presets:         Array.isArray(localPr) ? localPr : [],
               projectsSavedAt: ts,
             });
           }
@@ -2135,11 +1613,9 @@ export default function App() {
   useEffect(() => {
     Promise.all([
       stor("get", SK.PROJECTS),
-      stor("get", SK.PRESETS),
       stor("get", SK.IDEAS),
-    ]).then(([p, pr, id]) => {
+    ]).then(([p, id]) => {
       setProjects(Array.isArray(p) ? p : []);
-      setPresets(Array.isArray(pr) ? pr : []);
       setIdeas(Array.isArray(id) ? id : []);
       setReady(true);
     });
@@ -2175,9 +1651,8 @@ export default function App() {
         {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} setIdeas={setIdeas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
-        {page === "Presets"  && <PresetsPage presets={presets} setPresets={setPresets} />}
         {page === "Settings" && <SettingsPage user={user} />}
-        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); saveProjectsData(u); return u; }); nav("Home"); }} presets={presets} />}
+        {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); saveProjectsData(u); return u; }); nav("Home"); }} />}
       </main>
     </div>
   );
