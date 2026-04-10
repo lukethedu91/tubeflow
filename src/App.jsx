@@ -39,11 +39,14 @@ async function stor(op, key, val) {
   }
 }
 let _currentUid = null;
+function stripThumbnails(projects) {
+  return projects.map(({ thumbnailImageUrl: _t, ...rest }) => rest);
+}
 async function saveProjectsData(p) {
   const ts = Date.now();
   await stor("set", SK.PROJECTS, p);
   await stor("set", SK.PROJECTS_TS, ts);
-  if (_currentUid) saveUserProjects(_currentUid, p).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
+  if (_currentUid) saveUserProjects(_currentUid, stripThumbnails(p)).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
 
 async function saveIdeas(ideas) {
@@ -1578,26 +1581,28 @@ export default function App() {
             const cloudTs = rawCloud?.toMillis?.() ?? rawCloud ?? 0;
             const localTs = localPts || 0;
             if (localTs > cloudTs && Array.isArray(localP) && localP.length > 0) {
-              // Local is newer — push it to cloud (server timestamp written by saveUserProjects)
-              saveUserProjects(u.uid, localP).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
+              // Local is newer — push it to cloud (strip thumbnails before Firestore)
+              saveUserProjects(u.uid, stripThumbnails(localP)).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
               // Keep the already-loaded local state (Effect 1 already set it)
             } else {
-              // Cloud is newer (or equal) — use it
+              // Cloud is newer (or equal) — use it, but preserve any local thumbnails
               const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
               const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
-              setProjects(p);
+              const localThumbs = Object.fromEntries((localP || []).filter((x) => x.thumbnailImageUrl).map((x) => [x.id, x.thumbnailImageUrl]));
+              const merged = p.map((proj) => localThumbs[proj.id] ? { ...proj, thumbnailImageUrl: localThumbs[proj.id] } : proj);
+              setProjects(merged);
               setIdeas(id);
               await Promise.all([
-                stor("set", SK.PROJECTS, p),
+                stor("set", SK.PROJECTS, merged),
                 stor("set", SK.IDEAS,    id),
               ]);
             }
           } else {
-            // First-time cloud sync — upload current local data
+            // First-time cloud sync — upload current local data (strip thumbnails)
             const ts = Date.now();
             await stor("set", SK.PROJECTS_TS, ts);
             await saveAllUserData(u.uid, {
-              projects:        Array.isArray(localP)  ? localP  : [],
+              projects:        stripThumbnails(Array.isArray(localP)  ? localP  : []),
               ideas:           Array.isArray(localId) ? localId : [],
               projectsSavedAt: ts,
             });
