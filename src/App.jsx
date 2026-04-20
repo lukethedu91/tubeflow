@@ -55,12 +55,13 @@ async function saveIdeas(ideas) {
 }
 
 /* ── Constants ── */
-const STAGES = ["Research", "Thumbnail", "Script", "Filming", "Finishing", "Published"];
+const STAGES = ["Research", "Thumbnail", "Script", "Filming", "Editing", "Finishing", "Published"];
 const SC = {
   Research:  { bg: "#0c2340", text: "#60a5fa", dot: "#3b82f6" },
   Thumbnail: { bg: "#2d1500", text: "#fb923c", dot: "#f97316" },
   Script:    { bg: "#1e1b4b", text: "#a5b4fc", dot: "#818cf8" },
   Filming:   { bg: "#2d1a00", text: "#fbbf24", dot: "#f59e0b" },
+  Editing:   { bg: "#2d0a3e", text: "#e879f9", dot: "#d946ef" },
   Finishing: { bg: "#0c3040", text: "#38bdf8", dot: "#0ea5e9" },
   Published: { bg: "#052e16", text: "#4ade80", dot: "#22c55e" },
 };
