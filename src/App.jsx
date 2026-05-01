@@ -485,7 +485,7 @@ function ResearchTab({ project, update }) {
         ))}
         <button onClick={() => update("competitors", [...project.competitors, { id: crypto.randomUUID(), title: "", url: "", views: "", why: "", thumbnail: "" }])} style={{ background: "none", border: "1px dashed #64748b", borderRadius: 8, padding: "7px 14px", cursor: "pointer", color: "#94a3b8", fontSize: 13, width: "100%" }}>+ Add Manually</button>
       </Card>
-      <Card title="YouTube Search" icon="🔍" action={<span style={{ fontSize: 11, color: "#64748b" }}>AI-powered</span>}>
+      <Card title="YouTube Search" icon="🔍">
         <YTSearch onAdd={(v) => update("competitors", [...project.competitors, { id: crypto.randomUUID(), title: v.title, url: v.url, views: v.views, why: v.whyItWorks || "", thumbnail: v.thumbnail || "" }])} />
       </Card>
     </div>
