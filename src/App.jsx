@@ -329,12 +329,68 @@ function YTSearch({ onAdd }) {
     if (!q.trim()) return;
     setLoading(true); setDone(true); setSearchErr("");
     try {
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
+      if (!apiKey) { setSearchErr("YouTube API key not configured."); setLoading(false); return; }
       const { type, sort, duration, date } = f;
-      const params = new URLSearchParams({ q: q.trim(), sort, duration, date, type });
-      const r = await fetch(`/api/youtube?${params}`);
-      const data = await r.json();
-      if (r.ok && Array.isArray(data)) { setRes(data); }
-      else setSearchErr(data.error || "Search failed — try again.");
+
+      let searchQuery = q.trim();
+      let eventTypeParam = "";
+      let effectiveDuration = duration;
+      if (type === "shorts")   { searchQuery += " #shorts"; effectiveDuration = "short"; }
+      if (type === "live")     { eventTypeParam = "&eventType=live"; }
+      if (type === "upcoming") { eventTypeParam = "&eventType=upcoming"; }
+
+      let publishedAfter = "";
+      if (date !== "any") {
+        const now = new Date();
+        if (date === "today") now.setHours(0, 0, 0, 0);
+        if (date === "week")  now.setDate(now.getDate() - 7);
+        if (date === "month") now.setMonth(now.getMonth() - 1);
+        if (date === "year")  now.setFullYear(now.getFullYear() - 1);
+        publishedAfter = `&publishedAfter=${now.toISOString()}`;
+      }
+      const durationParam = effectiveDuration !== "any" ? `&videoDuration=${effectiveDuration}` : "";
+
+      const searchRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&maxResults=12&order=${sort}${durationParam}${eventTypeParam}${publishedAfter}&key=${apiKey}`
+      );
+      const searchData = await searchRes.json();
+      if (searchData.error) { setSearchErr(searchData.error.message); setLoading(false); return; }
+      if (!searchData.items?.length) { setRes([]); setLoading(false); return; }
+
+      const ids = searchData.items.map((i) => i.id.videoId).join(",");
+      const statsRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${ids}&key=${apiKey}`
+      );
+      const statsData = await statsRes.json();
+      const statsMap = Object.fromEntries((statsData.items || []).map((i) => [i.id, i]));
+
+      const results = searchData.items.map((item) => {
+        const id = item.id.videoId;
+        const stats = statsMap[id];
+        const viewCount = parseInt(stats?.statistics?.viewCount || 0);
+        const likeCount = parseInt(stats?.statistics?.likeCount || 0);
+        const publishedAt = item.snippet.publishedAt;
+        const rawDuration = stats?.contentDetails?.duration || "";
+        return {
+          title: item.snippet.title,
+          channel: item.snippet.channelTitle,
+          views: fmtViews(viewCount),
+          viewCount, likeCount,
+          duration: fmtDuration(rawDuration),
+          durationSecs: durationSecs(rawDuration),
+          publishedAt,
+          publishedAgo: timeAgo(publishedAt),
+          thumbnail: item.snippet.thumbnails?.medium?.url || "",
+          url: `https://www.youtube.com/watch?v=${id}`,
+        };
+      }).filter((v) => {
+        if (type === "video")  return v.durationSecs > 62;
+        if (type === "shorts") return v.durationSecs <= 62;
+        return true;
+      });
+
+      setRes(results);
     } catch { setSearchErr("Search failed — check your connection and try again."); }
     setLoading(false);
   }
