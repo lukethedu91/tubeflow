@@ -1,7 +1,7 @@
 // Simple key-value storage using IndexedDB
 // Drop-in replacement for the window.storage API used in Claude artifacts
 
-const DB_NAME = 'tubeflow-db';
+const DB_NAME = 'vidplanner-db';
 const STORE_NAME = 'kv';
 const DB_VERSION = 1;
 

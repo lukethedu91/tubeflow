@@ -1,4 +1,4 @@
-# TubeFlow — YouTube Video Planner
+# VidPlanner — YouTube Video Planner
 
 AI-powered YouTube content planning app. Research, plan, script, and publish videos with built-in AI assistance.
 
@@ -44,7 +44,7 @@ Output goes to `dist/` — deploy to Vercel, Netlify, or any static host.
 To wrap as an Android app:
 
 1. Install Capacitor: `npm install @capacitor/core @capacitor/cli`
-2. Initialize: `npx cap init TubeFlow com.tubeflow.app`
+2. Initialize: `npx cap init VidPlanner com.vidplanner.app`
 3. Add Android: `npx cap add android`
 4. Build web: `npm run build`
 5. Sync: `npx cap sync`

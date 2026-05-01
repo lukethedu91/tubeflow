@@ -6,10 +6,10 @@ import { durationSecs, fmtViews, fmtDuration, timeAgo } from "./utils.js";
 
 /* ── Storage keys ── */
 const SK = {
-  PROJECTS:    "tubeflow-projects",
-  PROJECTS_TS: "tubeflow-projects-ts",
-  IDEAS:       "tubeflow-ideas",
-  SCHEDULE:    "tubeflow-schedule",
+  PROJECTS:    "vidplanner-projects",
+  PROJECTS_TS: "vidplanner-projects-ts",
+  IDEAS:       "vidplanner-ideas",
+  SCHEDULE:    "vidplanner-schedule",
 };
 
 
@@ -91,6 +91,7 @@ function blankProject(contentType = "long") {
     metaTitles: [],
     metaDescription: "",
     metaTags: [],
+    notes: "",
     filmingDate: null,
     filmingLocation: "",
     filmingEquipment: "",
@@ -445,6 +446,9 @@ function ResearchTab({ project, update }) {
             </div>
           </Fld>
         )}
+        <Fld label="Notes / Angles / Handles" mt={12}>
+          <TArea value={project.notes || ""} onChange={(v) => update("notes", v)} rows={3} placeholder="Notes, angles, channel handles, why this would work…" />
+        </Fld>
         <Fld label="Target Publish Date" mt={12}>
           <input type="date" value={project.publishDate || ""} onChange={(e) => update("publishDate", e.target.value)} style={{ border: "1px solid #334155", borderRadius: 8, padding: "8px 12px", fontSize: 14, width: "100%", boxSizing: "border-box", background: "#0f172a", color: project.publishDate ? "#ffffff" : "#64748b", colorScheme: "dark" }} />
         </Fld>
@@ -983,6 +987,7 @@ function IdeasPage({ ideas, setIdeas, setPage, setEditId, projects, setProjects 
     const p = blankProject(contentType);
     p.title = idea.title;
     p.niche = idea.tags?.join(", ") || "";
+    p.notes = idea.notes || "";
     const updated = [p, ...projects];
     setProjects(updated);
     saveProjectsData(updated);

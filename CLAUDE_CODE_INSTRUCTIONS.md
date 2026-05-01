@@ -1,6 +1,6 @@
 # INSTRUCTIONS FOR CLAUDE CODE
 
-Hey Claude Code! This is a TubeFlow project — a YouTube content planning app 
+Hey Claude Code! This is a VidPlanner project — a YouTube content planning app 
 built with React + Vite. Here's what needs to happen:
 
 ## IMMEDIATE SETUP
@@ -25,7 +25,7 @@ The proxy should:
 ## ANDROID APP
 Set up Capacitor to build an Android APK:
 1. npm install @capacitor/core @capacitor/cli @capacitor/android
-2. npx cap init TubeFlow com.tubeflow.app --web-dir dist
+2. npx cap init VidPlanner com.vidplanner.app --web-dir dist
 3. npx cap add android
 4. npm run build && npx cap sync
 
