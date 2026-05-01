@@ -52,53 +52,6 @@ const _cleanupInterval = setInterval(() => {
   }
 }, 300_000);
 
-/* ── Anthropic proxy ── */
-const ALLOWED_MODELS = ['claude-sonnet-4-5', 'claude-haiku-4-5-20251001', 'claude-opus-4-6', 'claude-sonnet-4-6'];
-const MAX_TOKENS_LIMIT = 4000;
-
-app.post('/api/ai', async (req, res) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
-  if (rateLimit(`ai:${ip}`, 20)) return res.status(429).json({ error: 'Too many requests — slow down.' });
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'AI service not configured.' });
-
-  // Validate request — prevent model substitution and token abuse
-  const { model, max_tokens, system, messages } = req.body;
-  if (!model || !ALLOWED_MODELS.includes(model)) {
-    return res.status(400).json({ error: 'Invalid model' });
-  }
-  if (!max_tokens || typeof max_tokens !== 'number' || max_tokens > MAX_TOKENS_LIMIT) {
-    return res.status(400).json({ error: `max_tokens must be <= ${MAX_TOKENS_LIMIT}` });
-  }
-  if (!Array.isArray(messages) || messages.length === 0 || messages.length > 10) {
-    return res.status(400).json({ error: 'messages is required' });
-  }
-  // Validate message structure
-  for (const msg of messages) {
-    if (!msg || typeof msg.role !== 'string' || typeof msg.content !== 'string') {
-      return res.status(400).json({ error: 'Invalid message format' });
-    }
-    if (msg.content.length > 20000) return res.status(400).json({ error: 'Message too long' });
-  }
-
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({ model, max_tokens, system, messages }),
-    });
-    const data = await response.json();
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ error: 'Anthropic API error: ' + err.message });
-  }
-});
-
 /* ── YouTube Data API proxy ── */
 app.get('/api/youtube', async (req, res) => {
   const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
