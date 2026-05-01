@@ -314,6 +314,8 @@ const YT_FILTERS = {
   date:     { label: "Uploaded", options: [{ val: "any", lbl: "Any time" }, { val: "today", lbl: "Today" }, { val: "week", lbl: "This week" }, { val: "month", lbl: "This month" }, { val: "year", lbl: "This year" }] },
 };
 
+const YT_API_KEY = "AIzaSyBJJaw_wce_KWXlmA8M9GypkCtQ7p28iVk";
+
 function YTSearch({ onAdd }) {
   const isMobile = useIsMobile();
   const [q, setQ] = useState("");
@@ -329,8 +331,7 @@ function YTSearch({ onAdd }) {
     if (!q.trim()) return;
     setLoading(true); setDone(true); setSearchErr("");
     try {
-      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY;
-      if (!apiKey) { setSearchErr("YouTube API key not configured."); setLoading(false); return; }
+      const apiKey = YT_API_KEY;
       const { type, sort, duration, date } = f;
 
       let searchQuery = q.trim();

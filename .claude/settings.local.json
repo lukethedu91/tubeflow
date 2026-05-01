@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "WebFetch(domain:app.base44.com)",
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(git add:*)",
+      "Bash(npx firebase:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(vercel --version 2>/dev/null || echo \"vercel not found\"; git remote -v)",
+      "Bash(git push:*)",
+      "Bash(npx vite:*)",
+      "Bash(node --input-type=module --eval \"import\\(''''./src/App.jsx''''\\)\")",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
