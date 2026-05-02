@@ -111,6 +111,27 @@ app.get('/api/generate-image', (req, res) => {
   res.json({ url });
 });
 
+/* ── Firebase auth handler proxy (allows custom authDomain) ── */
+app.use('/__/auth', async (req, res) => {
+  const target = `https://tubeflow-12775.firebaseapp.com/__/auth${req.url}`;
+  try {
+    const upstream = await fetch(target, {
+      method: req.method,
+      headers: { ...req.headers, host: 'tubeflow-12775.firebaseapp.com' },
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
+    });
+    upstream.headers.forEach((val, key) => {
+      if (key !== 'transfer-encoding') res.setHeader(key, val);
+    });
+    res.status(upstream.status);
+    const buf = await upstream.arrayBuffer();
+    res.end(Buffer.from(buf));
+  } catch (e) {
+    console.error('Auth proxy error:', e.message);
+    res.status(502).send('Auth proxy error');
+  }
+});
+
 /* ── Serve frontend in production ── */
 const distPath = join(__dirname, 'dist');
 app.use(express.static(distPath));

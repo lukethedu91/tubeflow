@@ -14,7 +14,7 @@ import { getFirestore, doc, getDoc, setDoc, serverTimestamp, deleteDoc, writeBat
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbOUHqaMFKKnZijZv9q_LjZZjI6Wkj98o",
-  authDomain: "tubeflow-12775.firebaseapp.com",
+  authDomain: "vidplanner.org",
   projectId: "tubeflow-12775",
   storageBucket: "tubeflow-12775.firebasestorage.app",
   messagingSenderId: "580952961870",
