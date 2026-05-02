@@ -1,6 +1,16 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  deleteUser
+} from 'firebase/auth';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, deleteDoc, writeBatch } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbOUHqaMFKKnZijZv9q_LjZZjI6Wkj98o",
@@ -53,4 +63,34 @@ export function signInWithGoogle() {
 
 export function signOutUser() {
   return signOut(auth);
+}
+
+export async function signUpWithEmail(email, password) {
+  const userCred = await createUserWithEmailAndPassword(auth, email, password);
+  await sendEmailVerification(userCred.user);
+  return userCred;
+}
+
+export async function signInWithEmail(email, password) {
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
+export function sendPasswordReset(email) {
+  return sendPasswordResetEmail(auth, email);
+}
+
+export async function deleteAccount(uid) {
+  const batch = writeBatch(db);
+  const userRef = doc(db, 'users', uid);
+
+  const appDataRef = doc(db, 'users', uid, 'appdata', 'main');
+  const appDataSnap = await getDoc(appDataRef);
+  if (appDataSnap.exists()) {
+    batch.delete(appDataRef);
+  }
+
+  batch.delete(userRef);
+  await batch.commit();
+
+  await deleteUser(auth.currentUser);
 }

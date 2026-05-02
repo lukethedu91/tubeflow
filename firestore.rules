@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read/write their own data
+    match /users/{uid} {
+      allow read, write: if request.auth.uid == uid;
+      allow create: if request.auth.uid == uid;
+    }
+
+    // Subcollections under user documents
+    match /users/{uid}/appdata/{document=**} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    // Rate limit collection (system use)
+    match /ratelimits/{document=**} {
+      allow write: if request.auth != null;
+      allow read: if false;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveAllUserData } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveAllUserData, signUpWithEmail, signInWithEmail, sendPasswordReset, deleteAccount } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
-import { durationSecs, fmtViews, fmtDuration, timeAgo } from "./utils.js";
-
 /* ── Storage keys ── */
 const SK = {
   PROJECTS:    "vidplanner-projects",
@@ -12,6 +10,83 @@ const SK = {
   SCHEDULE:    "vidplanner-schedule",
 };
 
+
+const CONSENT_KEY = "vidplanner-consent";
+const GA_ID = import.meta.env.VITE_GA_MEASUREMENT_ID;
+const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT;
+
+function loadGA() {
+  if (!GA_ID || document.getElementById("ga-script")) return;
+  const s = document.createElement("script");
+  s.id = "ga-script";
+  s.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
+  s.async = true;
+  document.head.appendChild(s);
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function () { window.dataLayer.push(arguments); };
+  window.gtag("js", new Date());
+  window.gtag("config", GA_ID, { anonymize_ip: true });
+}
+
+function loadAdSense() {
+  if (!ADSENSE_CLIENT || document.getElementById("adsense-script")) return;
+  const s = document.createElement("script");
+  s.id = "adsense-script";
+  s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+  s.async = true;
+  s.setAttribute("data-ad-client", ADSENSE_CLIENT);
+  s.crossOrigin = "anonymous";
+  document.head.appendChild(s);
+}
+
+/* ── Ad unit component ── */
+function AdUnit({ slot, format = "auto", style = {} }) {
+  const hasConsent = localStorage.getItem(CONSENT_KEY) === "true";
+  useEffect(() => {
+    if (!hasConsent || !ADSENSE_CLIENT) return;
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch {}
+  }, [hasConsent]);
+
+  if (!hasConsent || !ADSENSE_CLIENT) return null;
+  return (
+    <div style={{ textAlign: "center", overflow: "hidden", ...style }}>
+      <ins
+        className="adsbygoogle"
+        style={{ display: "block" }}
+        data-ad-client={ADSENSE_CLIENT}
+        data-ad-slot={slot}
+        data-ad-format={format}
+        data-full-width-responsive="true"
+      />
+    </div>
+  );
+}
+
+/* ── Cookie consent banner ── */
+function ConsentBanner({ onConsent }) {
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 9999, background: "#1e293b", borderTop: "1px solid #334155", padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", fontFamily: "Sora, sans-serif" }}>
+      <p style={{ color: "#94a3b8", fontSize: 13, margin: 0, flex: 1, minWidth: 200 }}>
+        We use cookies for analytics and advertising to keep this app free.{" "}
+        <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa" }}>Privacy Policy</a>
+      </p>
+      <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <button
+          onClick={() => onConsent(false)}
+          style={{ padding: "8px 16px", background: "transparent", color: "#64748b", border: "1px solid #475569", borderRadius: 8, fontSize: 13, cursor: "pointer", fontFamily: "Sora, sans-serif" }}
+        >
+          Reject
+        </button>
+        <button
+          onClick={() => onConsent(true)}
+          style={{ padding: "8px 16px", background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "Sora, sans-serif" }}
+        >
+          Accept All
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /* ── Mobile breakpoint hook ── */
 function useIsMobile() {
@@ -278,6 +353,11 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
           </div>
         </div>
       )}
+      {/* Legal */}
+      <div style={{ padding: "8px 20px 14px", display: "flex", gap: 12 }}>
+        <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#475569", textDecoration: "none" }}>Privacy</a>
+        <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#475569", textDecoration: "none" }}>Terms</a>
+      </div>
     </div>
   );
 }
@@ -300,178 +380,6 @@ function KwInput({ keywords, onChange }) {
               <button onClick={() => onChange(keywords.filter((_, j) => j !== i))} aria-label={`Remove keyword ${kw}`} style={{ background: "none", border: "none", cursor: "pointer", color: "#3b82f6", padding: 0, fontSize: 15 }}>×</button>
             </span>
           ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── YouTube Search ── */
-const YT_FILTERS = {
-  type:     { label: "Type",     options: [{ val: "any", lbl: "All" }, { val: "video", lbl: "🎬 Videos" }, { val: "shorts", lbl: "📱 Shorts" }, { val: "live", lbl: "🔴 Live" }, { val: "upcoming", lbl: "⏰ Upcoming" }] },
-  sort:     { label: "Sort",     options: [{ val: "relevance", lbl: "Relevance" }, { val: "viewCount", lbl: "Most Viewed" }, { val: "date", lbl: "Newest" }, { val: "rating", lbl: "Top Rated" }] },
-  duration: { label: "Duration", options: [{ val: "any", lbl: "Any length" }, { val: "short", lbl: "Short  <4m" }, { val: "medium", lbl: "Medium  4–20m" }, { val: "long", lbl: "Long  20m+" }] },
-  date:     { label: "Uploaded", options: [{ val: "any", lbl: "Any time" }, { val: "today", lbl: "Today" }, { val: "week", lbl: "This week" }, { val: "month", lbl: "This month" }, { val: "year", lbl: "This year" }] },
-};
-
-const YT_API_KEY = "AIzaSyBJJaw_wce_KWXlmA8M9GypkCtQ7p28iVk";
-
-function YTSearch({ onAdd }) {
-  const isMobile = useIsMobile();
-  const [q, setQ] = useState("");
-  const [res, setRes] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const [searchErr, setSearchErr] = useState("");
-  const [filters, setFilters] = useState({ type: "any", sort: "relevance", duration: "any", date: "any" });
-  const colors = ["#1e3a5f","#2d1b69","#0f4c35","#5c1a1a","#1a3d5c","#3d1a5c","#1a4d2e","#4d1a1a","#2d3748","#1a365d","#276749","#702459"];
-  function bg(t) { let h = 0; for (let i = 0; i < (t||"").length; i++) h = (h + t.charCodeAt(i)) % colors.length; return colors[h]; }
-
-  async function searchWith(f = filters) {
-    if (!q.trim()) return;
-    setLoading(true); setDone(true); setSearchErr("");
-    try {
-      const apiKey = YT_API_KEY;
-      const { type, sort, duration, date } = f;
-
-      let searchQuery = q.trim();
-      let eventTypeParam = "";
-      let effectiveDuration = duration;
-      if (type === "shorts")   { searchQuery += " #shorts"; effectiveDuration = "short"; }
-      if (type === "live")     { eventTypeParam = "&eventType=live"; }
-      if (type === "upcoming") { eventTypeParam = "&eventType=upcoming"; }
-
-      let publishedAfter = "";
-      if (date !== "any") {
-        const now = new Date();
-        if (date === "today") now.setHours(0, 0, 0, 0);
-        if (date === "week")  now.setDate(now.getDate() - 7);
-        if (date === "month") now.setMonth(now.getMonth() - 1);
-        if (date === "year")  now.setFullYear(now.getFullYear() - 1);
-        publishedAfter = `&publishedAfter=${now.toISOString()}`;
-      }
-      const durationParam = effectiveDuration !== "any" ? `&videoDuration=${effectiveDuration}` : "";
-
-      const searchRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}&type=video&maxResults=12&order=${sort}${durationParam}${eventTypeParam}${publishedAfter}&key=${apiKey}`
-      );
-      const searchData = await searchRes.json();
-      if (searchData.error) { setSearchErr(searchData.error.message); setLoading(false); return; }
-      if (!searchData.items?.length) { setRes([]); setLoading(false); return; }
-
-      const ids = searchData.items.map((i) => i.id.videoId).join(",");
-      const statsRes = await fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=statistics,contentDetails&id=${ids}&key=${apiKey}`
-      );
-      const statsData = await statsRes.json();
-      const statsMap = Object.fromEntries((statsData.items || []).map((i) => [i.id, i]));
-
-      const results = searchData.items.map((item) => {
-        const id = item.id.videoId;
-        const stats = statsMap[id];
-        const viewCount = parseInt(stats?.statistics?.viewCount || 0);
-        const likeCount = parseInt(stats?.statistics?.likeCount || 0);
-        const publishedAt = item.snippet.publishedAt;
-        const rawDuration = stats?.contentDetails?.duration || "";
-        return {
-          title: item.snippet.title,
-          channel: item.snippet.channelTitle,
-          views: fmtViews(viewCount),
-          viewCount, likeCount,
-          duration: fmtDuration(rawDuration),
-          durationSecs: durationSecs(rawDuration),
-          publishedAt,
-          publishedAgo: timeAgo(publishedAt),
-          thumbnail: item.snippet.thumbnails?.medium?.url || "",
-          url: `https://www.youtube.com/watch?v=${id}`,
-        };
-      }).filter((v) => {
-        if (type === "video")  return v.durationSecs > 62;
-        if (type === "shorts") return v.durationSecs <= 62;
-        return true;
-      });
-
-      setRes(results);
-    } catch { setSearchErr("Search failed — check your connection and try again."); }
-    setLoading(false);
-  }
-
-  function applyFilter(key, val) {
-    const newFilters = { ...filters, [key]: val };
-    setFilters(newFilters);
-    if (done && q.trim()) searchWith(newFilters);
-  }
-
-  const search = () => searchWith(filters);
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <TInput value={q} onChange={setQ} placeholder="Search topics, competitors, viral videos…" style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && search()} />
-        <Btn onClick={search} disabled={loading}>{loading ? "Searching…" : "🔍 Search"}</Btn>
-      </div>
-
-      {/* Filter rows */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-        {Object.entries(YT_FILTERS).map(([key, { label, options }]) => (
-          <div key={key} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: "#64748b", minWidth: 52 }}>{label}</span>
-            {options.map(({ val, lbl }) => (
-              <button key={val} onClick={() => applyFilter(key, val)}
-                style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, border: "1px solid", cursor: "pointer", fontWeight: filters[key] === val ? 600 : 400,
-                  background: filters[key] === val ? "#1e3a5f" : "#1e293b",
-                  borderColor: filters[key] === val ? "#3b82f6" : "#334155",
-                  color: filters[key] === val ? "#93c5fd" : "#94a3b8" }}>
-                {lbl}
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-
-      {searchErr && <p style={{ color: "#f87171", fontSize: 13, margin: "8px 0" }}>⚠ {searchErr}</p>}
-      {done && !loading && !searchErr && res.length === 0 && <p style={{ color: "#64748b", fontSize: 13 }}>No results — try a different query or filters.</p>}
-      {res.length > 0 && (
-        <div style={{ maxHeight: 560, overflowY: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 10 }}>
-            {res.map((v, i) => {
-              const hoursAgo = v.publishedAt ? (Date.now() - new Date(v.publishedAt)) / 3_600_000 : 0;
-              const vph = hoursAgo > 0 && v.viewCount > 0 ? v.viewCount / hoursAgo : 0;
-              const vphStr = vph >= 1_000_000 ? (vph/1_000_000).toFixed(1)+'M/hr' : vph >= 1_000 ? Math.round(vph/1_000)+'K/hr' : Math.round(vph)+'/hr';
-              const likeRatio = v.viewCount > 0 && v.likeCount > 0 ? (v.likeCount / v.viewCount * 100).toFixed(1) : null;
-              return (
-              <div key={i} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 10, overflow: "hidden" }}>
-                <div style={{ position: "relative", paddingBottom: "56.25%", background: bg(v.title) }}>
-                  {v.thumbnail?.startsWith("http") ? (
-                    <img src={v.thumbnail} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
-                  ) : (
-                    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 8 }}>
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,.6)"><polygon points="5,3 19,12 5,21" /></svg>
-                      <span style={{ color: "rgba(255,255,255,.6)", fontSize: 8, marginTop: 3, textAlign: "center", lineHeight: 1.3 }}>{v.thumbnail}</span>
-                    </div>
-                  )}
-                  <span style={{ position: "absolute", bottom: 4, right: 4, background: "rgba(0,0,0,.8)", color: "#fff", fontSize: 9, fontWeight: 700, padding: "1px 4px", borderRadius: 3 }}>{v.duration}</span>
-                </div>
-                <div style={{ padding: "8px 8px 6px" }}>
-                  <p style={{ fontSize: 11, fontWeight: 600, color: "#ffffff", margin: "0 0 2px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{v.title}</p>
-                  <p style={{ fontSize: 10, color: "#94a3b8", margin: "0 0 3px" }}>{v.channel}</p>
-                  <p style={{ fontSize: 10, color: "#64748b", margin: "0 0 4px" }}>{v.views} · {v.publishedAgo}</p>
-                  {(vph > 0 || likeRatio) && (
-                    <div style={{ display: "flex", gap: 4, marginBottom: 5, flexWrap: "wrap" }}>
-                      {vph > 0 && <span style={{ fontSize: 9, background: vph >= 1000 ? "#2d1a00" : "#1e293b", color: vph >= 1000 ? "#fb923c" : "#94a3b8", borderRadius: 3, padding: "2px 5px", fontWeight: 600 }}>⚡ {vphStr}</span>}
-                      {likeRatio && <span style={{ fontSize: 9, background: "#052e16", color: "#4ade80", borderRadius: 3, padding: "2px 5px", fontWeight: 600 }}>👍 {likeRatio}%</span>}
-                    </div>
-                  )}
-                  {v.whyItWorks && <p style={{ fontSize: 9, color: "#93c5fd", background: "#0f1e3d", borderRadius: 3, padding: "2px 5px", margin: "0 0 5px", lineHeight: 1.4 }}>💡 {v.whyItWorks}</p>}
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <a href={v.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#94a3b8", textDecoration: "none", background: "#1e293b", borderRadius: 3, padding: "2px 6px" }}>Watch ↗</a>
-                    <button onClick={() => onAdd(v)} style={{ fontSize: 10, background: "#1e3a5f", color: "#93c5fd", border: "none", borderRadius: 3, padding: "2px 6px", cursor: "pointer", fontWeight: 600 }}>+ Add</button>
-                  </div>
-                </div>
-              </div>
-              );
-            })}
-          </div>
         </div>
       )}
     </div>
@@ -1538,27 +1446,67 @@ function CalendarPage({ projects, setProjects, setPage, setEditId }) {
 /* ── Account Page ── */
 function SettingsPage({ user }) {
   const isMobile = useIsMobile();
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDeleteAccount() {
+    if (!window.confirm("Delete your account and all data permanently? This cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      await deleteAccount(user.uid);
+    } catch (e) {
+      alert(e.code === "auth/requires-recent-login"
+        ? "Please sign out and sign in again before deleting your account."
+        : "Failed to delete account. Please try again.");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
       <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 28px", color: "#ffffff" }}>👤 Account</h1>
       {user && (
-        <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            {user.photoURL
-              ? <img src={user.photoURL} alt="" style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0 }} />
-              : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg,#2563eb,#3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{(user.displayName || user.email || "?")[0].toUpperCase()}</div>
-            }
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff" }}>{user.displayName || "Creator"}</div>
-              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{user.email}</div>
-              <div style={{ fontSize: 11, color: "#22c55e", marginTop: 5, display: "flex", alignItems: "center", gap: 4 }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
-                Synced across devices
+        <>
+          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+              {user.photoURL
+                ? <img src={user.photoURL} alt="" style={{ width: 56, height: 56, borderRadius: "50%", flexShrink: 0 }} />
+                : <div style={{ width: 56, height: 56, borderRadius: "50%", background: "linear-gradient(135deg,#2563eb,#3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{(user.displayName || user.email || "?")[0].toUpperCase()}</div>
+              }
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#ffffff" }}>{user.displayName || "Creator"}</div>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{user.email}</div>
+                {user.emailVerified === false && (
+                  <div style={{ fontSize: 11, color: "#fbbf24", marginTop: 5 }}>⚠ Email not verified — check your inbox</div>
+                )}
+                <div style={{ fontSize: 11, color: "#22c55e", marginTop: 5, display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block" }} />
+                  Synced across devices
+                </div>
               </div>
+              <Btn sm color="gray" onClick={signOutUser}>Sign out</Btn>
             </div>
-            <Btn sm color="gray" onClick={signOutUser}>Sign out</Btn>
           </div>
-        </div>
+
+          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #334155", padding: 24, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 16 }}>Legal</div>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <a href="/privacy.html" target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa", fontSize: 13, textDecoration: "none" }}>Privacy Policy</a>
+              <a href="/terms.html" target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa", fontSize: 13, textDecoration: "none" }}>Terms of Service</a>
+            </div>
+          </div>
+
+          <div style={{ background: "#1e293b", borderRadius: 16, border: "1px solid #7f1d1d", padding: 24 }}>
+            <div style={{ fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 8 }}>Danger Zone</div>
+            <p style={{ color: "#94a3b8", fontSize: 12, margin: "0 0 16px" }}>Permanently delete your account and all data. This cannot be undone.</p>
+            <button
+              onClick={handleDeleteAccount}
+              disabled={deleting}
+              style={{ padding: "8px 16px", background: deleting ? "#7f1d1d" : "#dc2626", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: deleting ? "not-allowed" : "pointer", fontFamily: "Sora, sans-serif" }}
+            >
+              {deleting ? "Deleting…" : "Delete Account & Data"}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -1566,16 +1514,65 @@ function SettingsPage({ user }) {
 
 /* ── Login Screen ── */
 function LoginPage() {
+  const [mode, setMode] = useState("signin"); // signin | signup | reset
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSignIn() {
+  async function handleGoogleSignIn() {
     setLoading(true);
     setError("");
     try {
       await signInWithGoogle();
     } catch (e) {
-      setError("Sign-in failed. Please try again.");
+      setError("Sign-in failed.");
+      setLoading(false);
+    }
+  }
+
+  async function handleEmailSignIn() {
+    setLoading(true);
+    setError("");
+    try {
+      await signInWithEmail(email, password);
+    } catch (e) {
+      setError(e.code === "auth/user-not-found" ? "Account not found." : e.code === "auth/wrong-password" ? "Wrong password." : "Sign-in failed.");
+      setLoading(false);
+    }
+  }
+
+  async function handleSignUp() {
+    setLoading(true);
+    setError("");
+    if (password.length < 6) {
+      setError("Password must be 6+ characters.");
+      setLoading(false);
+      return;
+    }
+    try {
+      await signUpWithEmail(email, password);
+      setError("");
+      setEmail("");
+      setPassword("");
+      setMode("signin");
+      setError("Verification email sent. Check your inbox.");
+    } catch (e) {
+      setError(e.code === "auth/email-already-in-use" ? "Email already in use." : "Sign-up failed.");
+      setLoading(false);
+    }
+  }
+
+  async function handleReset() {
+    setLoading(true);
+    setError("");
+    try {
+      await sendPasswordReset(email);
+      setEmail("");
+      setMode("signin");
+      setError("Reset link sent to your email.");
+    } catch (e) {
+      setError("Failed to send reset email.");
       setLoading(false);
     }
   }
@@ -1585,14 +1582,15 @@ function LoginPage() {
       <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
         <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>Vid Planner</h1>
-        <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch your YouTube videos with AI</p>
-        <button
-          onClick={handleSignIn}
-          disabled={loading}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, width: "100%", padding: "14px 20px", background: loading ? "#1e3a5f" : "#2563eb", color: "#ffffff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", transition: "background .2s", fontFamily: "Sora, sans-serif" }}
-        >
-          {loading ? "Signing in…" : (
-            <>
+        <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch YouTube videos</p>
+
+        {mode === "signin" && (
+          <>
+            <button
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, width: "100%", padding: "14px 20px", background: loading ? "#1e3a5f" : "#2563eb", color: "#ffffff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", transition: "background .2s", fontFamily: "Sora, sans-serif" }}
+            >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                 <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#fff"/>
                 <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#fff" fillOpacity=".8"/>
@@ -1600,11 +1598,128 @@ function LoginPage() {
                 <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#fff" fillOpacity=".4"/>
               </svg>
               Continue with Google
-            </>
-          )}
-        </button>
-        {error && <p style={{ color: "#f87171", fontSize: 12, marginTop: 12 }}>{error}</p>}
-        <p style={{ color: "#475569", fontSize: 11, marginTop: 24 }}>Your data stays private and synced to your account</p>
+            </button>
+
+            <div style={{ margin: "24px 0", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1, height: 1, background: "#334155" }}></div>
+              <span style={{ color: "#64748b", fontSize: 12 }}>OR</span>
+              <div style={{ flex: 1, height: 1, background: "#334155" }}></div>
+            </div>
+
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              style={{ width: "100%", padding: "12px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: 8, fontSize: 14, fontFamily: "Sora, sans-serif", marginBottom: 12, boxSizing: "border-box" }}
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              style={{ width: "100%", padding: "12px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: 8, fontSize: 14, fontFamily: "Sora, sans-serif", marginBottom: 12, boxSizing: "border-box" }}
+              onKeyPress={(e) => e.key === "Enter" && handleEmailSignIn()}
+            />
+            <button
+              onClick={handleEmailSignIn}
+              disabled={loading || !email || !password}
+              style={{ width: "100%", padding: "12px", background: email && password && !loading ? "#2563eb" : "#334155", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: email && password && !loading ? "pointer" : "not-allowed", transition: "background .2s", fontFamily: "Sora, sans-serif", marginBottom: 8 }}
+            >
+              {loading ? "Signing in…" : "Sign In"}
+            </button>
+
+            <p style={{ margin: "12px 0 0", color: "#64748b", fontSize: 13 }}>
+              No account?{" "}
+              <button
+                onClick={() => { setMode("signup"); setError(""); }}
+                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", textDecoration: "underline", fontFamily: "Sora, sans-serif", fontSize: 13 }}
+              >
+                Create one
+              </button>
+            </p>
+            <p style={{ margin: "8px 0 0", color: "#64748b", fontSize: 13 }}>
+              <button
+                onClick={() => { setMode("reset"); setError(""); }}
+                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", textDecoration: "underline", fontFamily: "Sora, sans-serif", fontSize: 13 }}
+              >
+                Forgot password?
+              </button>
+            </p>
+          </>
+        )}
+
+        {mode === "signup" && (
+          <>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              style={{ width: "100%", padding: "12px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: 8, fontSize: 14, fontFamily: "Sora, sans-serif", marginBottom: 12, boxSizing: "border-box" }}
+            />
+            <input
+              type="password"
+              placeholder="Password (6+ characters)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              style={{ width: "100%", padding: "12px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: 8, fontSize: 14, fontFamily: "Sora, sans-serif", marginBottom: 12, boxSizing: "border-box" }}
+              onKeyPress={(e) => e.key === "Enter" && handleSignUp()}
+            />
+            <button
+              onClick={handleSignUp}
+              disabled={loading || !email || !password}
+              style={{ width: "100%", padding: "12px", background: email && password && !loading ? "#2563eb" : "#334155", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: email && password && !loading ? "pointer" : "not-allowed", transition: "background .2s", fontFamily: "Sora, sans-serif", marginBottom: 8 }}
+            >
+              {loading ? "Creating…" : "Create Account"}
+            </button>
+            <p style={{ margin: "12px 0 0", color: "#64748b", fontSize: 13 }}>
+              <button
+                onClick={() => { setMode("signin"); setEmail(""); setPassword(""); setError(""); }}
+                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", textDecoration: "underline", fontFamily: "Sora, sans-serif", fontSize: 13 }}
+              >
+                Back to sign in
+              </button>
+            </p>
+          </>
+        )}
+
+        {mode === "reset" && (
+          <>
+            <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>Enter your email to receive a password reset link</p>
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              style={{ width: "100%", padding: "12px", background: "#0f172a", color: "#fff", border: "1px solid #334155", borderRadius: 8, fontSize: 14, fontFamily: "Sora, sans-serif", marginBottom: 12, boxSizing: "border-box" }}
+              onKeyPress={(e) => e.key === "Enter" && handleReset()}
+            />
+            <button
+              onClick={handleReset}
+              disabled={loading || !email}
+              style={{ width: "100%", padding: "12px", background: email && !loading ? "#2563eb" : "#334155", color: "#ffffff", border: "none", borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: email && !loading ? "pointer" : "not-allowed", transition: "background .2s", fontFamily: "Sora, sans-serif", marginBottom: 8 }}
+            >
+              {loading ? "Sending…" : "Send Reset Link"}
+            </button>
+            <p style={{ margin: "12px 0 0", color: "#64748b", fontSize: 13 }}>
+              <button
+                onClick={() => { setMode("signin"); setEmail(""); setPassword(""); setError(""); }}
+                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", textDecoration: "underline", fontFamily: "Sora, sans-serif", fontSize: 13 }}
+              >
+                Back to sign in
+              </button>
+            </p>
+          </>
+        )}
+
+        {error && <p style={{ color: error.includes("sent") ? "#4ade80" : "#f87171", fontSize: 12, marginTop: 12 }}>{error}</p>}
+        <p style={{ color: "#475569", fontSize: 11, marginTop: 24 }}>Data synced to your account, never shared</p>
       </div>
     </div>
   );
@@ -1620,6 +1735,23 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(CONSENT_KEY);
+    if (stored === null) {
+      setShowConsent(true);
+    } else if (stored === "true") {
+      loadGA();
+      loadAdSense();
+    }
+  }, []);
+
+  function handleConsent(accepted) {
+    localStorage.setItem(CONSENT_KEY, accepted ? "true" : "false");
+    setShowConsent(false);
+    if (accepted) { loadGA(); loadAdSense(); }
+  }
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -1686,6 +1818,23 @@ export default function App() {
     });
   }, []);
 
+  // Auto sign-out after 90 minutes of inactivity
+  useEffect(() => {
+    if (!user) return;
+    let timer;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => signOutUser(), 90 * 60 * 1000);
+    };
+    const events = ["mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [user]);
+
   function updateProject(updated) {
     setProjects((prev) => {
       const next = prev.map((p) => (p.id === updated.id ? updated : p));
@@ -1712,13 +1861,15 @@ export default function App() {
   return (
     <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a" }}>
       <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} />
-      <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh" }}>
+      <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh", paddingBottom: isMobile ? 60 : 0 }}>
         {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} setIdeas={setIdeas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Settings" && <SettingsPage user={user} />}
         {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); saveProjectsData(u); return u; }); nav("Home"); }} />}
+        <AdUnit slot="YOUR_AD_SLOT_ID" style={{ margin: "0 20px 20px" }} />
       </main>
+      {showConsent && <ConsentBanner onConsent={handleConsent} />}
     </div>
   );
 }
