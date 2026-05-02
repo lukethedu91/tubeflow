@@ -1526,7 +1526,9 @@ function LoginPage() {
     try {
       await signInWithGoogle();
     } catch (e) {
-      setError("Sign-in failed.");
+      console.warn("Google sign-in failed:", e.code, e.message);
+      if (e.code === "auth/popup-closed-by-user") { setLoading(false); return; }
+      setError("Sign-in failed. Please try again.");
       setLoading(false);
     }
   }
@@ -1537,7 +1539,14 @@ function LoginPage() {
     try {
       await signInWithEmail(email, password);
     } catch (e) {
-      setError(e.code === "auth/user-not-found" ? "Account not found." : e.code === "auth/wrong-password" ? "Wrong password." : "Sign-in failed.");
+      console.warn("Email sign-in failed:", e.code);
+      const msg = {
+        "auth/user-not-found": "No account with that email.",
+        "auth/wrong-password": "Wrong password.",
+        "auth/invalid-credential": "Incorrect email or password.",
+        "auth/too-many-requests": "Too many attempts. Try again later.",
+      }[e.code] || "Sign-in failed.";
+      setError(msg);
       setLoading(false);
     }
   }
@@ -1545,20 +1554,25 @@ function LoginPage() {
   async function handleSignUp() {
     setLoading(true);
     setError("");
-    if (password.length < 6) {
-      setError("Password must be 6+ characters.");
+    if (password.length < 8) {
+      setError("Password must be 8+ characters.");
       setLoading(false);
       return;
     }
     try {
       await signUpWithEmail(email, password);
-      setError("");
       setEmail("");
       setPassword("");
       setMode("signin");
       setError("Verification email sent. Check your inbox.");
     } catch (e) {
-      setError(e.code === "auth/email-already-in-use" ? "Email already in use." : "Sign-up failed.");
+      console.warn("Sign-up failed:", e.code);
+      const msg = {
+        "auth/email-already-in-use": "Email already in use.",
+        "auth/invalid-email": "Invalid email address.",
+        "auth/weak-password": "Password is too weak.",
+      }[e.code] || "Sign-up failed.";
+      setError(msg);
       setLoading(false);
     }
   }
@@ -1663,7 +1677,7 @@ function LoginPage() {
             />
             <input
               type="password"
-              placeholder="Password (6+ characters)"
+              placeholder="Password (8+ characters)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}

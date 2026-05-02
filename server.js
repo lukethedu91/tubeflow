@@ -9,6 +9,8 @@ import { getFirestore } from 'firebase-admin/firestore';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 
 // Initialize Firebase Admin if credentials provided
 let adminAuth = null;
@@ -33,7 +35,8 @@ async function verifyToken(req, res, next) {
     const decoded = await adminAuth.verifyIdToken(token);
     req.user = decoded;
     next();
-  } catch {
+  } catch (e) {
+    console.warn('Token verification failed:', e.code || e.message);
     res.status(401).json({ error: 'Invalid token' });
   }
 }
@@ -47,11 +50,13 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://cdn.jsdelivr.net; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' https: data:; " +
-    "connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com; " +
-    "frame-src 'self' https://accounts.google.com;"
+    "script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://www.googletagmanager.com https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' https: data: blob:; " +
+    "connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://pagead2.googlesyndication.com; " +
+    "frame-src 'self' https://accounts.google.com https://tubeflow-12775.firebaseapp.com; " +
+    "frame-ancestors 'none';"
   );
   next();
 });
@@ -113,8 +118,11 @@ app.get('/{*splat}', (req, res) => {
   res.sendFile(join(distPath, 'index.html'));
 });
 
+/* ── Health check ── */
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+
 const PORT = process.env.PORT || 3001;
-const server = app.listen(PORT, () => console.log(`✓ Vid Planner server running on http://localhost:${PORT}`));
+const server = app.listen(PORT, () => console.log(`✓ Vid Planner server running on port ${PORT} (${process.env.NODE_ENV || 'development'})`));
 
 function shutdown() {
   clearInterval(_cleanupInterval);
