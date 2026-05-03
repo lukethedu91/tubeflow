@@ -30,7 +30,12 @@ export async function storageGet(key) {
       req.onerror = () => resolve(null);
     });
   } catch {
-    return null;
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -45,7 +50,12 @@ export async function storageSet(key, value) {
       tx.onerror = () => resolve(false);
     });
   } catch {
-    return false;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -60,6 +70,11 @@ export async function storageDelete(key) {
       tx.onerror = () => resolve(false);
     });
   } catch {
-    return false;
+    try {
+      window.localStorage.removeItem(key);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

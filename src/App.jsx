@@ -113,6 +113,32 @@ async function stor(op, key, val) {
     return null;
   }
 }
+
+async function resizeImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 1200;
+        const width = Math.min(img.width, maxWidth);
+        const height = Math.round((img.height * width) / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+        resolve(canvas.toDataURL(type, 0.8));
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 let _currentUid = null;
 function stripThumbnails(projects) {
   return projects.map(({ thumbnailImageUrl: _t, ...rest }) => rest);
@@ -457,7 +483,18 @@ function ResearchTab({ project, update }) {
 /* ── Tab: Thumbnail ── */
 function ThumbnailTab({ project, update }) {
   const fileRef = useRef();
-  function upload(e) { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => update("thumbnailImageUrl", ev.target.result); r.readAsDataURL(f); }
+  async function upload(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const resized = await resizeImage(f);
+      update("thumbnailImageUrl", resized);
+    } catch {
+      const r = new FileReader();
+      r.onload = (ev) => update("thumbnailImageUrl", ev.target.result);
+      r.readAsDataURL(f);
+    }
+  }
   const competitorThumbs = (project.competitors || []).filter((c) => c.thumbnail);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
