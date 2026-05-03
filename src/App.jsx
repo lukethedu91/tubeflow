@@ -1183,7 +1183,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas, setIdeas }
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ fontFamily: "Sora,sans-serif", fontSize: 16, fontWeight: 700, margin: "0 0 12px", color: "#cbd5e1" }}>⏳ In Progress ({inProg.length})</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 12 }}>
-            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} onMoveToIdeas={() => { const idea = { ...blankIdea(), title: p.title, notes: p.niche || "", tags: (p.keywords || []).slice(0, 3) }; const updIdeas = [idea, ...ideas]; setIdeas(updIdeas); saveIdeas(updIdeas); const updProjects = projects.filter((x) => x.id !== p.id); setProjects(updProjects); saveProjectsData(updProjects); }} />)}
+            {inProg.map((p) => <PCard key={p.id} project={p} onClick={() => open(p.id)} onDelete={() => { const u = projects.filter((x) => x.id !== p.id); setProjects(u); saveProjectsData(u); }} onMoveToIdeas={() => { const idea = { ...blankIdea(), title: p.title, notes: p.notes || "", tags: (p.keywords || []).slice(0, 3) }; const updIdeas = [idea, ...ideas]; setIdeas(updIdeas); saveIdeas(updIdeas); const updProjects = projects.filter((x) => x.id !== p.id); setProjects(updProjects); saveProjectsData(updProjects); }} />)}
           </div>
         </div>
       )}
