@@ -44,7 +44,7 @@ export async function saveUserProjects(uid, projects) {
 }
 
 export async function saveUserIdeas(uid, ideas) {
-  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { ideas }, { merge: true });
+  await setDoc(doc(db, 'users', uid, 'appdata', 'main'), { ideas, projectsSavedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function saveUserPresets(uid, presets) {

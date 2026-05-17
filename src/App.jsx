@@ -151,7 +151,9 @@ async function saveProjectsData(p) {
 }
 
 async function saveIdeas(ideas) {
+  const ts = Date.now();
   await stor("set", SK.IDEAS, ideas);
+  await stor("set", SK.PROJECTS_TS, ts);
   if (_currentUid) saveUserIdeas(_currentUid, ideas).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
 }
 
@@ -1805,68 +1807,62 @@ export default function App() {
   }
 
   useEffect(() => {
+    let cancelled = false;
     const unsub = onAuthStateChanged(auth, async (u) => {
+      if (cancelled) return;
       setUser(u);
       setAuthReady(true);
-      if (u) {
-        _currentUid = u.uid;
-        // Sync cloud data
-        try {
-          const [cloudData, localP, localId, localPts] = await Promise.all([
-            loadUserData(u.uid),
-            stor("get", SK.PROJECTS),
-            stor("get", SK.IDEAS),
-            stor("get", SK.PROJECTS_TS),
-          ]);
-          if (cloudData) {
-            // Compare timestamps — cloud uses server timestamp (Firestore Timestamp or ms number)
-            const rawCloud = cloudData.projectsSavedAt;
-            const cloudTs = rawCloud?.toMillis?.() ?? rawCloud ?? 0;
-            const localTs = localPts || 0;
-            if (localTs > cloudTs && Array.isArray(localP) && localP.length > 0) {
-              // Local is newer — push it to cloud (strip thumbnails before Firestore)
-              saveUserProjects(u.uid, stripThumbnails(localP)).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
-              // Keep the already-loaded local state (Effect 1 already set it)
-            } else {
-              // Cloud is newer (or equal) — use it, but preserve any local thumbnails
-              const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
-              const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
-              const localThumbs = Object.fromEntries((localP || []).filter((x) => x.thumbnailImageUrl).map((x) => [x.id, x.thumbnailImageUrl]));
-              const merged = p.map((proj) => localThumbs[proj.id] ? { ...proj, thumbnailImageUrl: localThumbs[proj.id] } : proj);
-              setProjects(merged);
-              setIdeas(id);
-              await Promise.all([
-                stor("set", SK.PROJECTS, merged),
-                stor("set", SK.IDEAS,    id),
-              ]);
-            }
-          } else {
-            // First-time cloud sync — upload current local data (strip thumbnails)
-            const ts = Date.now();
-            await stor("set", SK.PROJECTS_TS, ts);
-            await saveAllUserData(u.uid, {
-              projects:        stripThumbnails(Array.isArray(localP)  ? localP  : []),
-              ideas:           Array.isArray(localId) ? localId : [],
-              projectsSavedAt: ts,
-            });
-          }
-        } catch (e) { console.warn("Vid Planner: cloud sync failed –", e); }
-      } else {
-        _currentUid = null;
-      }
-    });
-    return unsub;
-  }, []);
 
-  useEffect(() => {
-    Promise.all([
-      stor("get", SK.PROJECTS),
-      stor("get", SK.IDEAS),
-    ]).then(([p, id]) => {
-      setProjects(Array.isArray(p) ? p : []);
-      setIdeas(Array.isArray(id) ? id : []);
+      // Always load local data first — fast path so the app isn't blank
+      const [localP, localId, localPts] = await Promise.all([
+        stor("get", SK.PROJECTS),
+        stor("get", SK.IDEAS),
+        stor("get", SK.PROJECTS_TS),
+      ]);
+      if (cancelled) return;
+      setProjects(Array.isArray(localP) ? localP : []);
+      setIdeas(Array.isArray(localId) ? localId : []);
       setReady(true);
+
+      if (!u) { _currentUid = null; return; }
+      _currentUid = u.uid;
+
+      // Now reconcile with cloud
+      try {
+        const cloudData = await loadUserData(u.uid);
+        if (cancelled) return;
+        if (cloudData) {
+          const rawCloud = cloudData.projectsSavedAt;
+          const cloudTs = rawCloud?.toMillis?.() ?? rawCloud ?? 0;
+          const localTs = localPts || 0;
+          if (localTs > cloudTs && Array.isArray(localP) && localP.length > 0) {
+            // Local is newer — push to cloud; local state already set above
+            saveUserProjects(u.uid, stripThumbnails(localP)).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
+          } else {
+            // Cloud is newer (or equal) — use it, preserving any local thumbnails
+            const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
+            const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
+            const localThumbs = Object.fromEntries((localP || []).filter((x) => x.thumbnailImageUrl).map((x) => [x.id, x.thumbnailImageUrl]));
+            const merged = p.map((proj) => localThumbs[proj.id] ? { ...proj, thumbnailImageUrl: localThumbs[proj.id] } : proj);
+            if (!cancelled) { setProjects(merged); setIdeas(id); }
+            await Promise.all([
+              stor("set", SK.PROJECTS, merged),
+              stor("set", SK.IDEAS,    id),
+            ]);
+          }
+        } else {
+          // First-time cloud sync — upload current local data (strip thumbnails)
+          const ts = Date.now();
+          await stor("set", SK.PROJECTS_TS, ts);
+          await saveAllUserData(u.uid, {
+            projects:        stripThumbnails(Array.isArray(localP)  ? localP  : []),
+            ideas:           Array.isArray(localId) ? localId : [],
+            projectsSavedAt: ts,
+          });
+        }
+      } catch (e) { console.warn("Vid Planner: cloud sync failed –", e); }
     });
+    return () => { cancelled = true; unsub(); };
   }, []);
 
   // Auto sign-out after 90 minutes of inactivity
