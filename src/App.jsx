@@ -315,7 +315,16 @@ const NAV_ITEMS = [
   { id: "Ideas",    icon: "💡", label: "Idea Vault" },
   { id: "Settings", icon: "👤", label: "Account"    },
 ];
-function Sidebar({ page, setPage, projects, ideas, user }) {
+const RefreshIcon = ({ spinning }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+    style={{ display: "block", animation: spinning ? "spin 0.75s linear infinite" : "none" }}>
+    <polyline points="23 4 23 10 17 10" />
+    <polyline points="1 20 1 14 7 14" />
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+  </svg>
+);
+
+function Sidebar({ page, setPage, projects, ideas, user, onRefresh, syncing }) {
   const isMobile = useIsMobile();
   const active = page === "Project" ? "Home" : page;
 
@@ -328,6 +337,10 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
             <span style={{ whiteSpace: "nowrap", overflow: "hidden", maxWidth: "100%", textOverflow: "ellipsis", paddingInline: 2 }}>{label}</span>
           </button>
         ))}
+        <button onClick={onRefresh} disabled={syncing} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, border: "none", background: "transparent", color: syncing ? "#3b82f6" : "#64748b", cursor: syncing ? "default" : "pointer", fontSize: 9, fontWeight: 500, fontFamily: "Sora,sans-serif", padding: "6px 2px" }}>
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20 }}><RefreshIcon spinning={syncing} /></span>
+          <span>{syncing ? "Syncing" : "Refresh"}</span>
+        </button>
       </div>
     );
   }
@@ -354,6 +367,10 @@ function Sidebar({ page, setPage, projects, ideas, user }) {
             <span style={{ fontSize: 16, width: 20, textAlign: "center" }}>{icon}</span>{label}
           </button>
         ))}
+        <button onClick={onRefresh} disabled={syncing} style={{ display: "flex", alignItems: "center", gap: 11, width: "100%", padding: "11px 14px", border: "none", borderRadius: 10, cursor: syncing ? "default" : "pointer", fontFamily: "Sora,sans-serif", fontWeight: 500, fontSize: 14, background: "transparent", color: syncing ? "#3b82f6" : "#94a3b8", marginBottom: 3, textAlign: "left", transition: "color .12s", marginTop: 6 }}>
+          <span style={{ width: 20, display: "flex", alignItems: "center", justifyContent: "center" }}><RefreshIcon spinning={syncing} /></span>
+          {syncing ? "Syncing…" : "Refresh"}
+        </button>
       </nav>
       {/* Stats */}
       <div style={{ padding: "16px 20px", borderTop: "1px solid #1e293b" }}>
@@ -1789,6 +1806,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(CONSENT_KEY);
@@ -1905,9 +1923,33 @@ export default function App() {
 
   const nav = (p) => { setPage(p); setEditId(null); };
 
+  async function handleRefresh() {
+    if (syncing || !_currentUid) return;
+    setSyncing(true);
+    try {
+      const cloudData = await loadUserData(_currentUid);
+      if (cloudData) {
+        const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
+        const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
+        const localP = await stor("get", SK.PROJECTS);
+        const localThumbs = Object.fromEntries((localP || []).filter((x) => x.thumbnailImageUrl).map((x) => [x.id, x.thumbnailImageUrl]));
+        const merged = p.map((proj) => localThumbs[proj.id] ? { ...proj, thumbnailImageUrl: localThumbs[proj.id] } : proj);
+        setProjects(merged);
+        setIdeas(id);
+        const cloudTs = cloudData.projectsSavedAt?.toMillis?.() ?? cloudData.projectsSavedAt ?? Date.now();
+        await Promise.all([
+          stor("set", SK.PROJECTS, merged),
+          stor("set", SK.IDEAS, id),
+          stor("set", SK.PROJECTS_TS, cloudTs),
+        ]);
+      }
+    } catch (e) { console.warn("Vid Planner: manual refresh failed –", e); }
+    setSyncing(false);
+  }
+
   return (
     <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a" }}>
-      <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} />
+      <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} onRefresh={handleRefresh} syncing={syncing} />
       <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh", paddingBottom: isMobile ? 60 : 0 }}>
         {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} setIdeas={setIdeas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
