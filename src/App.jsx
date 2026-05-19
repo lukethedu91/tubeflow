@@ -417,7 +417,7 @@ function Sidebar({ page, setPage, projects, ideas, user, onRefresh, syncing }) {
         ))}
       </div>
       {/* User */}
-      {user && (
+      {user ? (
         <div style={{ padding: "14px 20px", borderTop: "1px solid #334155", display: "flex", alignItems: "center", gap: 10 }}>
           {user.photoURL
             ? <img src={user.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0 }} />
@@ -427,6 +427,13 @@ function Sidebar({ page, setPage, projects, ideas, user, onRefresh, syncing }) {
             <div style={{ fontSize: 12, fontWeight: 600, color: "#ffffff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{user.displayName || "Creator"}</div>
             <button onClick={signOutUser} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 11, color: "#64748b", fontFamily: "Sora,sans-serif" }}>Sign out</button>
           </div>
+        </div>
+      ) : (
+        <div style={{ padding: "14px 20px", borderTop: "1px solid #334155" }}>
+          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>☁️ Sign in to sync across devices</div>
+          <button onClick={() => setPage("Settings")} style={{ width: "100%", padding: "8px", background: "#1e3a5f", color: "#93c5fd", border: "1px solid #1e4080", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "Sora,sans-serif" }}>
+            Sign in / Create account
+          </button>
         </div>
       )}
       {/* Legal */}
@@ -1576,6 +1583,14 @@ function SettingsPage({ user }) {
     }
   }
 
+  if (!user) return (
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
+      <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 8px", color: "#ffffff" }}>👤 Account</h1>
+      <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 28px" }}>Sign in to sync your data across all your devices.</p>
+      <LoginPage embedded />
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 600, margin: "0 auto", padding: isMobile ? "20px 14px 80px" : "40px 40px" }}>
       <h1 style={{ fontFamily: "Sora,sans-serif", fontSize: 26, fontWeight: 700, margin: "0 0 28px", color: "#ffffff" }}>👤 Account</h1>
@@ -1628,7 +1643,7 @@ function SettingsPage({ user }) {
 }
 
 /* ── Login Screen ── */
-function LoginPage() {
+function LoginPage({ embedded = false }) {
   const [mode, setMode] = useState("signin"); // signin | signup | reset
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1706,9 +1721,8 @@ function LoginPage() {
     }
   }
 
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0f172a", fontFamily: "Sora, sans-serif" }}>
-      <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
+  const card = (
+    <div style={{ background: "#1e293b", borderRadius: 20, padding: "52px 48px", maxWidth: 420, width: "90%", textAlign: "center", boxShadow: "0 24px 64px rgba(0,0,0,.5)" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🎬</div>
         <h1 style={{ fontFamily: "Sora, sans-serif", fontSize: 28, fontWeight: 700, color: "#ffffff", margin: "0 0 8px" }}>Vid Planner</h1>
         <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 36px", lineHeight: 1.6 }}>Research, plan, and launch YouTube videos</p>
@@ -1850,6 +1864,12 @@ function LoginPage() {
         {error && <p style={{ color: error.includes("sent") ? "#4ade80" : "#f87171", fontSize: 12, marginTop: 12 }}>{error}</p>}
         <p style={{ color: "#475569", fontSize: 11, marginTop: 24 }}>Data synced to your account, never shared</p>
       </div>
+  );
+
+  if (embedded) return card;
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0f172a", fontFamily: "Sora, sans-serif" }}>
+      {card}
     </div>
   );
 }
@@ -1863,7 +1883,6 @@ export default function App() {
   const [editId, setEditId] = useState(null);
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -1883,29 +1902,37 @@ export default function App() {
     if (accepted) { loadGA(); loadAdSense(); }
   }
 
+  // Load local data immediately — don't wait for Firebase auth
+  useEffect(() => {
+    async function loadLocal() {
+      const [localP, localId] = await Promise.all([
+        stor("get", SK.PROJECTS),
+        stor("get", SK.IDEAS),
+      ]);
+      setProjects(Array.isArray(localP) ? localP : []);
+      setIdeas(Array.isArray(localId) ? localId : []);
+      setReady(true);
+    }
+    loadLocal();
+  }, []);
+
+  // Auth state + cloud sync (runs independently of local load)
   useEffect(() => {
     let cancelled = false;
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (cancelled) return;
       setUser(u);
-      setAuthReady(true);
-
-      // Always load local data first — fast path so the app isn't blank
-      const [localP, localId, localPts] = await Promise.all([
-        stor("get", SK.PROJECTS),
-        stor("get", SK.IDEAS),
-        stor("get", SK.PROJECTS_TS),
-      ]);
-      if (cancelled) return;
-      setProjects(Array.isArray(localP) ? localP : []);
-      setIdeas(Array.isArray(localId) ? localId : []);
-      setReady(true);
-
       if (!u) { _currentUid = null; return; }
       _currentUid = u.uid;
 
-      // Now reconcile with cloud
+      // Reconcile local vs cloud
       try {
+        const [localP, localId, localPts] = await Promise.all([
+          stor("get", SK.PROJECTS),
+          stor("get", SK.IDEAS),
+          stor("get", SK.PROJECTS_TS),
+        ]);
+        if (cancelled) return;
         const cloudData = await loadUserData(u.uid);
         if (cancelled) return;
         if (cloudData) {
@@ -1913,26 +1940,20 @@ export default function App() {
           const cloudTs = rawCloud?.toMillis?.() ?? rawCloud ?? 0;
           const localTs = localPts || 0;
           if (localTs > cloudTs && Array.isArray(localP) && localP.length > 0) {
-            // Local is newer — push to cloud; local state already set above
             saveUserProjects(u.uid, stripThumbnails(localP)).catch((e) => console.warn("Vid Planner: cloud sync failed –", e));
           } else {
-            // Cloud is newer (or equal) — use it, preserving any local thumbnails
             const p  = Array.isArray(cloudData.projects) ? cloudData.projects : [];
             const id = Array.isArray(cloudData.ideas)    ? cloudData.ideas    : [];
             const localThumbs = Object.fromEntries((localP || []).filter((x) => x.thumbnailImageUrl).map((x) => [x.id, x.thumbnailImageUrl]));
             const merged = p.map((proj) => localThumbs[proj.id] ? { ...proj, thumbnailImageUrl: localThumbs[proj.id] } : proj);
             if (!cancelled) { setProjects(merged); setIdeas(id); }
-            await Promise.all([
-              stor("set", SK.PROJECTS, merged),
-              stor("set", SK.IDEAS,    id),
-            ]);
+            await Promise.all([stor("set", SK.PROJECTS, merged), stor("set", SK.IDEAS, id)]);
           }
         } else {
-          // First-time cloud sync — upload current local data (strip thumbnails)
           const ts = Date.now();
           await stor("set", SK.PROJECTS_TS, ts);
           await saveAllUserData(u.uid, {
-            projects:        stripThumbnails(Array.isArray(localP)  ? localP  : []),
+            projects:        stripThumbnails(Array.isArray(localP) ? localP : []),
             ideas:           Array.isArray(localId) ? localId : [],
             projectsSavedAt: ts,
           });
@@ -1976,9 +1997,7 @@ export default function App() {
     }
   }, [page, ready, editProject]);
 
-  if (!authReady || !ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading Vid Planner…</div>;
-
-  if (!user) return <LoginPage />;
+  if (!ready) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontFamily: "Sora, sans-serif" }}>Loading Vid Planner…</div>;
 
   const nav = (p) => { setPage(p); setEditId(null); };
 
