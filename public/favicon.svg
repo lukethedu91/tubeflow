@@ -1,23 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="18" fill="#0f172a"/>
-
-  <!-- Clapperboard body -->
-  <rect x="10" y="44" width="80" height="48" rx="8" fill="#2563eb"/>
-
-  <!-- Top stick: white base -->
-  <rect x="10" y="12" width="80" height="30" rx="8" fill="white"/>
-
-  <!-- Diagonal stripes clipped to top stick -->
-  <clipPath id="c">
-    <rect x="10" y="12" width="80" height="30" rx="8"/>
-  </clipPath>
-  <g clip-path="url(#c)" fill="#1e293b">
-    <polygon points="14,12 30,12 12,42 -4,42"/>
-    <polygon points="40,12 56,12 38,42 22,42"/>
-    <polygon points="66,12 82,12 64,42 48,42"/>
-    <polygon points="92,12 108,12 90,42 74,42"/>
-  </g>
-
-  <!-- Checkmark on body -->
-  <polyline points="24,70 40,84 72,54" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100"><metadata><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:creator>RealFaviconGenerator</dc:creator><dc:source>https://realfavicongenerator.net</dc:source></rdf:Description></rdf:RDF></metadata><rect width="100" height="100" rx="18" fill="#0f172a"></rect><rect x="10" y="44" width="80" height="48" rx="8" fill="#2563eb"></rect><rect x="10" y="12" width="80" height="30" rx="8" fill="white"></rect><clipPath id="c">
+    <rect x="10" y="12" width="80" height="30" rx="8"></rect>
+  </clipPath><g clip-path="url(#c)" fill="#1e293b">
+    <polygon points="14,12 30,12 12,42 -4,42"></polygon>
+    <polygon points="40,12 56,12 38,42 22,42"></polygon>
+    <polygon points="66,12 82,12 64,42 48,42"></polygon>
+    <polygon points="92,12 108,12 90,42 74,42"></polygon>
+  </g><polyline points="24,70 40,84 72,54" fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>

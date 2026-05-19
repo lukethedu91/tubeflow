@@ -16,7 +16,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
       },
-      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+      includeAssets: ['favicon.svg', 'favicon.ico', 'favicon-96x96.png', 'apple-touch-icon.png', 'web-app-manifest-192x192.png', 'web-app-manifest-512x512.png'],
       manifest: {
         name: 'Vid Planner — YouTube Video Planner',
         short_name: 'Vid Planner',
@@ -29,20 +29,21 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: 'icon-192.png',
+            src: 'web-app-manifest-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'maskable'
           },
           {
-            src: 'icon-512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
-          {
-            src: 'icon-512.png',
+            src: 'web-app-manifest-512x512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any maskable'
+            purpose: 'maskable'
+          },
+          {
+            src: 'favicon-96x96.png',
+            sizes: '96x96',
+            type: 'image/png'
           }
         ]
       }
