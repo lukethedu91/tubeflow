@@ -29,8 +29,12 @@ export const storage = getStorage(app);
 
 export async function uploadThumbnail(uid, projectId, blob) {
   const storageRef = ref(storage, `thumbnails/${uid}/${projectId}`);
+  console.log("[thumb] starting uploadBytes, blob size:", blob.size);
   await uploadBytes(storageRef, blob);
-  return getDownloadURL(storageRef);
+  console.log("[thumb] uploadBytes done, fetching download URL");
+  const url = await getDownloadURL(storageRef);
+  console.log("[thumb] got URL:", url);
+  return url;
 }
 
 export async function deleteThumbnail(uid, projectId) {
