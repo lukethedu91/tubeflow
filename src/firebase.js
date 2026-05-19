@@ -11,6 +11,7 @@ import {
   deleteUser
 } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, deleteDoc, writeBatch } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBbOUHqaMFKKnZijZv9q_LjZZjI6Wkj98o",
@@ -24,6 +25,21 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
+
+export async function uploadThumbnail(uid, projectId, blob) {
+  const storageRef = ref(storage, `thumbnails/${uid}/${projectId}`);
+  await uploadBytes(storageRef, blob);
+  return getDownloadURL(storageRef);
+}
+
+export async function deleteThumbnail(uid, projectId) {
+  try {
+    await deleteObject(ref(storage, `thumbnails/${uid}/${projectId}`));
+  } catch (e) {
+    if (e.code !== 'storage/object-not-found') throw e;
+  }
+}
 
 export async function loadUserKeys(uid) {
   const snap = await getDoc(doc(db, "users", uid));

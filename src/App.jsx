@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { storageGet, storageSet } from "./storage.js";
-import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveAllUserData, signUpWithEmail, signInWithEmail, sendPasswordReset, deleteAccount } from "./firebase.js";
+import { auth, signInWithGoogle, signOutUser, loadUserData, saveUserProjects, saveUserIdeas, saveAllUserData, signUpWithEmail, signInWithEmail, sendPasswordReset, deleteAccount, uploadThumbnail, deleteThumbnail } from "./firebase.js";
 import { onAuthStateChanged } from "firebase/auth";
 /* ── Storage keys ── */
 const SK = {
@@ -139,9 +139,40 @@ async function resizeImage(file) {
   });
 }
 
+async function resizeImageToBlob(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxWidth = 1200;
+        const width = Math.min(img.width, maxWidth);
+        const height = Math.round((img.height * width) / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+        canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("toBlob failed")), type, 0.8);
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 let _currentUid = null;
 function stripThumbnails(projects) {
-  return projects.map(({ thumbnailImageUrl: _t, ...rest }) => rest);
+  return projects.map((p) => {
+    // Keep Storage HTTPS URLs — they're small and safe for Firestore. Strip base64 data URLs.
+    if (!p.thumbnailImageUrl || p.thumbnailImageUrl.startsWith("data:")) {
+      const { thumbnailImageUrl: _t, ...rest } = p;
+      return rest;
+    }
+    return p;
+  });
 }
 async function saveProjectsData(p) {
   const ts = Date.now();
@@ -502,18 +533,46 @@ function ResearchTab({ project, update }) {
 /* ── Tab: Thumbnail ── */
 function ThumbnailTab({ project, update }) {
   const fileRef = useRef();
+  const [uploading, setUploading] = useState(false);
+
   async function upload(e) {
     const f = e.target.files?.[0];
     if (!f) return;
-    try {
-      const resized = await resizeImage(f);
-      update("thumbnailImageUrl", resized);
-    } catch {
-      const r = new FileReader();
-      r.onload = (ev) => update("thumbnailImageUrl", ev.target.result);
-      r.readAsDataURL(f);
+    if (_currentUid) {
+      setUploading(true);
+      try {
+        const blob = await resizeImageToBlob(f);
+        const url = await uploadThumbnail(_currentUid, project.id, blob);
+        update("thumbnailImageUrl", url);
+      } catch {
+        try {
+          update("thumbnailImageUrl", await resizeImage(f));
+        } catch {
+          const r = new FileReader();
+          r.onload = (ev) => update("thumbnailImageUrl", ev.target.result);
+          r.readAsDataURL(f);
+        }
+      } finally {
+        setUploading(false);
+      }
+    } else {
+      try {
+        update("thumbnailImageUrl", await resizeImage(f));
+      } catch {
+        const r = new FileReader();
+        r.onload = (ev) => update("thumbnailImageUrl", ev.target.result);
+        r.readAsDataURL(f);
+      }
     }
   }
+
+  function remove() {
+    if (project.thumbnailImageUrl?.startsWith("https://") && _currentUid) {
+      deleteThumbnail(_currentUid, project.id).catch(() => {});
+    }
+    update("thumbnailImageUrl", "");
+  }
+
   const competitorThumbs = (project.competitors || []).filter((c) => c.thumbnail);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -523,14 +582,14 @@ function ThumbnailTab({ project, update }) {
             <img src={project.thumbnailImageUrl} alt="" style={{ width: "100%", borderRadius: 10, border: "2px solid #334155", display: "block" }} />
             <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
               <Btn sm color="gray" onClick={() => fileRef.current?.click()}>Replace</Btn>
-              <Btn sm color="gray" onClick={() => update("thumbnailImageUrl", "")}>Remove</Btn>
+              <Btn sm color="gray" onClick={remove}>Remove</Btn>
             </div>
           </div>
         ) : (
-          <div onClick={() => fileRef.current?.click()} style={{ border: "2px dashed #64748b", borderRadius: 12, padding: "36px 20px", textAlign: "center", cursor: "pointer", background: "#1a2234" }}>
-            <div style={{ fontSize: 36, marginBottom: 8 }}>🖼️</div>
-            <p style={{ color: "#94a3b8", fontSize: 14, margin: 0, fontWeight: 500 }}>Upload your finished thumbnail</p>
-            <p style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>PNG, JPG, WEBP</p>
+          <div onClick={() => !uploading && fileRef.current?.click()} style={{ border: "2px dashed #64748b", borderRadius: 12, padding: "36px 20px", textAlign: "center", cursor: uploading ? "default" : "pointer", background: "#1a2234" }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>{uploading ? "⏳" : "🖼️"}</div>
+            <p style={{ color: "#94a3b8", fontSize: 14, margin: 0, fontWeight: 500 }}>{uploading ? "Uploading…" : "Upload your finished thumbnail"}</p>
+            {!uploading && <p style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>PNG, JPG, WEBP</p>}
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={upload} />
