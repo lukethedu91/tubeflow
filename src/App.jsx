@@ -541,9 +541,7 @@ function ThumbnailTab({ project, update }) {
     if (_currentUid) {
       setUploading(true);
       try {
-        console.log("[thumb] resizing image...");
         const blob = await resizeImageToBlob(f);
-        console.log("[thumb] resize done, uploading...");
         const url = await uploadThumbnail(_currentUid, project.id, blob);
         update("thumbnailImageUrl", url);
       } catch {
