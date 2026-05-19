@@ -500,13 +500,13 @@ function ResearchTab({ project, update }) {
       <Card title="Competitor Videos" icon="👁️">
         {project.competitors.map((c, i) => (
           <div key={c.id || i} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: i < project.competitors.length - 1 ? "1px solid #1e293b" : "none" }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexDirection: isMobile ? "column" : "row" }}>
               {c.thumbnail ? (
-                <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0 }}>
-                  <img src={c.thumbnail} alt="" style={{ width: 140, aspectRatio: "16/9", borderRadius: 6, objectFit: "cover", border: "1px solid #334155", display: "block" }} />
+                <a href={c.url} target="_blank" rel="noopener noreferrer" style={{ flexShrink: 0, width: isMobile ? "100%" : 140, display: "block" }}>
+                  <img src={c.thumbnail} alt="" style={{ width: "100%", aspectRatio: "16/9", borderRadius: 6, objectFit: "cover", border: "1px solid #334155", display: "block" }} />
                 </a>
               ) : (
-                <div style={{ width: 140, aspectRatio: "16/9", borderRadius: 6, background: "#1e293b", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #334155" }}>
+                <div style={{ width: isMobile ? "100%" : 140, aspectRatio: "16/9", borderRadius: 6, background: "#1e293b", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #334155" }}>
                   <span style={{ fontSize: 20 }}>🎬</span>
                 </div>
               )}
@@ -1257,7 +1257,7 @@ function HomePage({ projects, setProjects, setPage, setEditId, ideas, setIdeas }
           <span style={{ fontWeight: 700, fontSize: 15 }}>📅 Content Calendar</span>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => { let m = cm - 1, y = cy; if (m < 0) { m = 11; y--; } setCm(m); setCy(y); }} aria-label="Previous month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>‹</button>
-            <span style={{ fontWeight: 600, minWidth: 110, textAlign: "center", fontSize: 13 }}>{MONTHS[cm]} {cy}</span>
+            <span style={{ fontWeight: 600, minWidth: isMobile ? 90 : 110, textAlign: "center", fontSize: 13 }}>{MONTHS[cm]} {cy}</span>
             <button onClick={() => { let m = cm + 1, y = cy; if (m > 11) { m = 0; y++; } setCm(m); setCy(y); }} aria-label="Next month" style={{ background: "none", border: "1px solid #334155", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}>›</button>
           </div>
         </div>
@@ -2007,9 +2007,9 @@ export default function App() {
   }
 
   return (
-    <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a" }}>
+    <div style={{ fontFamily: "Sora, sans-serif", display: "flex", minHeight: "100vh", background: "#0f172a", overflowX: "hidden" }}>
       <Sidebar page={page} setPage={nav} projects={projects} ideas={ideas} user={user} onRefresh={handleRefresh} syncing={syncing} />
-      <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, background: "#0f172a", minHeight: "100vh", paddingBottom: isMobile ? 60 : 0 }}>
+      <main style={{ marginLeft: isMobile ? 0 : 240, flex: 1, minWidth: 0, background: "#0f172a", minHeight: "100vh", paddingBottom: isMobile ? 60 : 0, overflowX: "hidden" }}>
         {page === "Home"     && <HomePage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} ideas={ideas} setIdeas={setIdeas} />}
         {page === "Calendar" && <CalendarPage projects={projects} setProjects={setProjects} setPage={setPage} setEditId={setEditId} />}
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
