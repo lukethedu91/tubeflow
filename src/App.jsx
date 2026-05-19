@@ -13,7 +13,7 @@ const SK = {
 
 const CONSENT_KEY = "vidplanner-consent";
 const GA_ID = import.meta.env.VITE_GA_MEASUREMENT_ID;
-const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT;
+const ADSENSE_CLIENT = import.meta.env.VITE_ADSENSE_CLIENT || "ca-pub-2125954614493490";
 
 function loadGA() {
   if (!GA_ID || document.getElementById("ga-script")) return;
@@ -2015,7 +2015,7 @@ export default function App() {
         {page === "Ideas"    && <IdeasPage ideas={ideas} setIdeas={setIdeas} setPage={setPage} setEditId={setEditId} projects={projects} setProjects={setProjects} />}
         {page === "Settings" && <SettingsPage user={user} />}
         {page === "Project"  && editProject && <ProjectPage project={editProject} onUpdate={updateProject} onBack={() => nav("Home")} onDelete={() => { setProjects((prev) => { const u = prev.filter((p) => p.id !== editProject.id); saveProjectsData(u); return u; }); nav("Home"); }} />}
-        <AdUnit slot="YOUR_AD_SLOT_ID" style={{ margin: "0 20px 20px" }} />
+        <AdUnit slot="2150534118" style={{ margin: "0 20px 20px" }} />
       </main>
       {showConsent && <ConsentBanner onConsent={handleConsent} />}
     </div>
