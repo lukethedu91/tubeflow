@@ -55,7 +55,7 @@ app.use((req, res, next) => {
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' https: data: blob:; " +
     "connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://www.googletagmanager.com https://www.google-analytics.com https://pagead2.googlesyndication.com; " +
-    "frame-src 'self' https://accounts.google.com https://tubeflow-12775.firebaseapp.com; " +
+    "frame-src 'self' https://accounts.google.com https://tubeflow-12775.firebaseapp.com https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://www.google.com https://pagead2.googlesyndication.com; " +
     "frame-ancestors 'none';"
   );
   next();
